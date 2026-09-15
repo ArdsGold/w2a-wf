@@ -102,15 +102,15 @@ class WTAI_Server_Info {
      * @return array Extension status
      */
     public function check_extensions() {
-        $required_extensions = array(
+        static $required_extensions = array(
             'zip' => 'Preferred for .docx parsing; WordPress PclZip is used as a fallback when unavailable',
             'xml' => 'Required for document processing',
             'mbstring' => 'Recommended for text processing',
             'fileinfo' => 'Recommended for file type detection',
         );
-        
+
         $results = array();
-        
+
         foreach ($required_extensions as $extension => $description) {
             $results[$extension] = array(
                 'loaded' => extension_loaded($extension),
@@ -128,9 +128,9 @@ class WTAI_Server_Info {
      * 
      * @return array System status
      */
-    public function get_system_status() {
-        $upload_limits = $this->get_upload_limits();
-        $extensions = $this->check_extensions();
+    public function get_system_status($upload_limits = null, $extensions = null) {
+        $upload_limits = null === $upload_limits ? $this->get_upload_limits() : $upload_limits;
+        $extensions = null === $extensions ? $this->check_extensions() : $extensions;
         
         $status = array(
             'overall' => 'good',
@@ -180,7 +180,7 @@ class WTAI_Server_Info {
         $server_info = $this->get_server_info();
         $upload_limits = $this->get_upload_limits();
         $extensions = $this->check_extensions();
-        $system_status = $this->get_system_status();
+        $system_status = $this->get_system_status($upload_limits, $extensions);
         
         ob_start();
         ?>

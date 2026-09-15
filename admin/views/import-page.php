@@ -68,7 +68,7 @@ $server_info = new WTAI_Server_Info();
                             </label>
                             <p class="description"><?php _e('Match images based on content, headings, and keywords', 'word-to-article-importer'); ?></p>
                         </div>
-                        
+
                         <div class="wtai-form-group wtai-image-matching-options" style="display: <?php echo $settings['auto_insert_images'] ? 'block' : 'none'; ?>;">
                             <label for="wtai-image-matching-method"><?php _e('Image Matching Method:', 'word-to-article-importer'); ?></label>
                             <select name="settings[image_matching_method]" id="wtai-image-matching-method">

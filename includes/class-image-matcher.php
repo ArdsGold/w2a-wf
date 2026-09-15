@@ -107,11 +107,22 @@ class WTAI_Image_Matcher {
     }
 
     private function keywords($text) {
-        $stop = array('about','after','again','also','because','before','being','between','could','from','have','into','more','other','over','that','their','there','these','they','this','through','using','what','when','where','which','with','your');
+        static $stop = array(
+            'about' => true, 'after' => true, 'again' => true, 'also' => true,
+            'because' => true, 'before' => true, 'being' => true, 'between' => true,
+            'could' => true, 'from' => true, 'have' => true, 'into' => true,
+            'more' => true, 'other' => true, 'over' => true, 'that' => true,
+            'their' => true, 'there' => true, 'these' => true, 'they' => true,
+            'this' => true, 'through' => true, 'using' => true, 'what' => true,
+            'when' => true, 'where' => true, 'which' => true, 'with' => true,
+            'your' => true,
+        );
         $words = preg_split('/[^\p{L}\p{N}]+/u', strtolower($text), -1, PREG_SPLIT_NO_EMPTY);
         $terms = array();
         foreach ($words as $word) {
-            if (strlen($word) >= 4 && !in_array($word, $stop, true)) $terms[$word] = true;
+            if (strlen($word) >= 4 && !isset($stop[$word])) {
+                $terms[$word] = true;
+            }
         }
         return array_keys($terms);
     }

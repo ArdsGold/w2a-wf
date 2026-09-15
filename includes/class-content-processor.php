@@ -16,7 +16,7 @@ class WTAI_Content_Processor {
             if (!empty($settings['unbold_except_headings'])) {
                 $content = preg_replace_callback('/<h([1-6])\b[^>]*>.*?<\/h\1>/is', function ($m) {
                     return '__WTAI_HEADING_' . base64_encode($m[0]) . '__';
-                }, $content, -1, $count);
+                }, $content);
                 $content = preg_replace('/<\/?(?:strong|b)\b[^>]*>/i', '', $content);
                 $content = preg_replace_callback('/__WTAI_HEADING_([^_]+)__/', function ($m) {
                     return base64_decode($m[1]);

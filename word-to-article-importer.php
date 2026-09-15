@@ -1,9 +1,9 @@
 <?php
 /**
- * Plugin Name: W2A WF
+ * Plugin Name: Word to Article Importer
  * Description: Import .docx files as WordPress articles with bulk upload, formatting cleanup, scheduling, and optional media matching.
- * Version: 2.0.0
- * Author: Your Name
+ * Version: 3.0.0
+ * Author: Macky Villafuerte, Arden Guinto
  * License: GPL v2 or later
  * Text Domain: word-to-article-importer
  */
@@ -12,7 +12,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('WTAI_VERSION', '1.3.1');
+define('WTAI_VERSION', '1.10.1');
 define('WTAI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('WTAI_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('WTAI_PLUGIN_BASENAME', plugin_basename(__FILE__));
@@ -293,6 +293,9 @@ class Word_To_Article_Importer {
 
         $settings = $this->sanitize_import_settings(isset($_POST['settings']) ? $_POST['settings'] : array());
         $publish_dates = $this->calculate_publish_dates($settings, count($files));
+        if (is_wp_error($publish_dates)) {
+            wp_send_json_error(array('message' => $publish_dates->get_error_message()), 400);
+        }
         $parser = new WTAI_Docx_Parser($this->error_handler);
         $processor = new WTAI_Content_Processor($this->error_handler);
         $image_matcher = new WTAI_Image_Matcher($this->error_handler);
@@ -315,8 +318,10 @@ class Word_To_Article_Importer {
                 }
 
                 $publish_date = isset($publish_dates[$index]) ? $publish_dates[$index] : null;
+                $article_title = $this->generate_title($file['name'], $content);
                 $post_data = array(
-                    'post_title' => $this->generate_title($file['name'], $content),
+                    'post_title' => $article_title,
+                    'post_name' => sanitize_title($article_title),
                     'post_content' => $processed_content,
                     'post_status' => $this->get_post_status($publish_date),
                     'post_author' => $settings['default_author'],
@@ -332,6 +337,8 @@ class Word_To_Article_Importer {
                 if (is_wp_error($post_id)) {
                     throw new Exception($post_id->get_error_message());
                 }
+
+                $this->set_seo_metadata($post_id, $article_title, $processed_content);
 
                 $this->log_import_history($post_id, $file['name'], $settings);
                 $results[] = array(
@@ -363,6 +370,144 @@ class Word_To_Article_Importer {
     }
 
     /**
+     * Populate SEO metadata. Yoast gets the focus keyphrase as well as title/description.
+     */
+    private function set_seo_metadata($post_id, $title, $content) {
+        $title = wp_strip_all_tags($title);
+        $description = $this->build_meta_description($content);
+        $focus_keyphrase = $this->build_focus_keyphrase($title, $content);
+
+        if (defined('WPSEO_VERSION') || class_exists('WPSEO_Options')) {
+            update_post_meta($post_id, '_yoast_wpseo_title', $title);
+            update_post_meta($post_id, '_yoast_wpseo_metadesc', $description);
+            update_post_meta($post_id, '_yoast_wpseo_focuskw', $focus_keyphrase);
+        } elseif (defined('RANK_MATH_VERSION') || class_exists('RankMath')) {
+            update_post_meta($post_id, 'rank_math_title', $title);
+            update_post_meta($post_id, 'rank_math_description', $description);
+        } elseif (defined('AIOSEO_VERSION') || class_exists('AIOSEO\\Plugin\\AIOSEO')) {
+            update_post_meta($post_id, '_aioseo_title', $title);
+            update_post_meta($post_id, '_aioseo_description', $description);
+        } elseif (defined('SEOPRESS_VERSION')) {
+            update_post_meta($post_id, '_seopress_titles_title', $title);
+            update_post_meta($post_id, '_seopress_titles_desc', $description);
+        }
+    }
+
+    /**
+     * Select a deterministic focus keyphrase from the title, headings, and body.
+     */
+    private function build_focus_keyphrase($title, $content) {
+        $stop_words = array_flip(array(
+            'a','an','and','are','as','at','be','been','being','but','by','can','could','did','do','does','for','from',
+            'had','has','have','how','if','in','into','is','it','its','may','more','most','of','on','or','should','so',
+            'that','the','their','there','these','they','this','those','to','was','were','what','when','where','which',
+            'who','why','will','with','would','you','your'
+        ));
+
+        $normalize = function ($text) {
+            $text = html_entity_decode(wp_strip_all_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            $text = function_exists('mb_strtolower') ? mb_strtolower($text, 'UTF-8') : strtolower($text);
+            return preg_replace('/[^\p{L}\p{N}]+/u', ' ', $text);
+        };
+
+        $tokenize = function ($text) use ($normalize, $stop_words) {
+            $words = preg_split('/\s+/u', trim($normalize($text)), -1, PREG_SPLIT_NO_EMPTY);
+            return array_values(array_filter($words, function ($word) use ($stop_words) {
+                return !isset($stop_words[$word]);
+            }));
+        };
+
+        $title_words = $tokenize($title);
+        if (!$title_words) {
+            return '';
+        }
+
+        $body_text = $normalize($content);
+        $body_words = preg_split('/\s+/u', trim($body_text), -1, PREG_SPLIT_NO_EMPTY);
+        $frequencies = array_count_values($body_words);
+
+        $heading_text = '';
+        if (preg_match_all('/<h[1-6]\b[^>]*>(.*?)<\/h[1-6]>/is', $content, $matches)) {
+            $heading_text = implode(' ', $matches[1]);
+        }
+        $heading_text = $normalize($heading_text);
+
+        $candidates = array();
+        $count = count($title_words);
+
+        // Generate only title-derived phrases. This prevents arbitrary body text
+        // from becoming the focus keyphrase and keeps the result topic-focused.
+        for ($i = 0; $i < $count; $i++) {
+            for ($size = 1; $size <= 4 && $i + $size <= $count; $size++) {
+                $phrase_words = array_slice($title_words, $i, $size);
+                $phrase = implode(' ', $phrase_words);
+                $score = 0;
+
+                // Prefer useful 2-3 word phrases; allow 1 or 4 when clearly stronger.
+                $score += $size === 2 ? 24 : ($size === 3 ? 22 : ($size === 4 ? 10 : 4));
+
+                foreach ($phrase_words as $word) {
+                    $score += min(8, isset($frequencies[$word]) ? $frequencies[$word] : 0);
+                }
+
+                // Strongest signal: the phrase itself occurs in the article title.
+                $normalized_title = ' ' . implode(' ', $title_words) . ' ';
+                if (strpos($normalized_title, ' ' . $phrase . ' ') !== false) {
+                    $score += 30;
+                }
+
+                // Headings are stronger topical signals than ordinary body text.
+                if ($heading_text !== '' && strpos(' ' . $heading_text . ' ', ' ' . $phrase . ' ') !== false) {
+                    $score += 15;
+                }
+
+                // Avoid weak phrases made only from numbers.
+                if (preg_match('/^[\p{N}\s]+$/u', $phrase)) {
+                    $score -= 20;
+                }
+
+                // Prefer a phrase with a substantive word over a generic short phrase.
+                if ($size === 1 && (function_exists('mb_strlen') ? mb_strlen($phrase, 'UTF-8') < 4 : strlen($phrase) < 4)) {
+                    $score -= 6;
+                }
+
+                if (!isset($candidates[$phrase]) || $score > $candidates[$phrase]) {
+                    $candidates[$phrase] = $score;
+                }
+            }
+        }
+
+        arsort($candidates, SORT_NUMERIC);
+        return (string) key($candidates);
+    }
+
+    /**
+     * Build a maximum-142-character description without cutting a word in half.
+     */
+    private function build_meta_description($content) {
+        $paragraphs = array();
+        if (preg_match_all('/<p\\b[^>]*>(.*?)<\\/p>/is', $content, $matches)) {
+            foreach ($matches[1] as $paragraph) {
+                $paragraph = trim(preg_replace('/\\s+/u', ' ', wp_strip_all_tags($paragraph)));
+                if ($paragraph !== '') {
+                    $paragraphs[] = $paragraph;
+                }
+            }
+        }
+
+        $text = isset($paragraphs[0]) ? $paragraphs[0] : trim(preg_replace('/\\s+/u', ' ', wp_strip_all_tags($content)));
+        $length = preg_match_all('/./us', $text, $chars);
+        if ($length === false || $length <= 142) {
+            return $text;
+        }
+
+        $chars = $chars[0];
+        $candidate = implode('', array_slice($chars, 0, 139));
+        $candidate = preg_replace('/\\s+\\S*$/u', '', $candidate);
+        return rtrim($candidate) . '...';
+    }
+
+    /**
      * Sanitize imported HTML without flattening semantic formatting.
      *
      * WordPress KSES normally permits these elements, but explicitly defining
@@ -388,42 +533,76 @@ class Word_To_Article_Importer {
 
         try {
             $timezone = wp_timezone();
-            $start = !empty($settings['schedule_start_date'])
-                ? DateTime::createFromFormat('!Y-m-d', $settings['schedule_start_date'], $timezone)
-                : new DateTime('now', $timezone);
-
+            $start = $this->parse_schedule_date($settings['schedule_start_date'], $timezone);
             if (!$start) {
-                throw new Exception('Invalid start date.');
+                throw new Exception(__('Please select a valid start date.', 'word-to-article-importer'));
             }
+            $start->setTime(9, 0, 0);
 
             $interval = $this->get_interval($settings['schedule_interval']);
             $end = null;
-            if ($settings['publish_schedule'] === 'custom_range' && !empty($settings['schedule_end_date'])) {
-                $end = DateTime::createFromFormat('!Y-m-d', $settings['schedule_end_date'], $timezone);
+            if ($settings['publish_schedule'] === 'custom_range') {
+                $end = $this->parse_schedule_date($settings['schedule_end_date'], $timezone);
                 if (!$end) {
-                    throw new Exception('Invalid end date.');
+                    throw new Exception(__('Please select a valid end date.', 'word-to-article-importer'));
                 }
                 $end->setTime(23, 59, 59);
                 if ($end < $start) {
-                    throw new Exception('End date must not be before the start date.');
+                    throw new Exception(__('End date must not be before the start date.', 'word-to-article-importer'));
                 }
             }
 
             $dates = array();
-            for ($i = 0; $i < $count; $i++) {
-                $date = clone $start;
-                if ($end && $date > $end) {
-                    $dates[] = null;
-                } else {
-                    $dates[] = $date;
-                }
-                $start->add($interval);
+            $current = clone $start;
+            $slots = $this->count_schedule_slots($start, $end, $settings['schedule_interval']);
+
+            if ($end && $count > $slots) {
+                throw new Exception(sprintf(
+                    __('The selected date range contains %1$d %2$s publishing slot%3$s, but %4$d documents were selected. Extend the range or use a longer interval.', 'word-to-article-importer'),
+                    $slots,
+                    $settings['schedule_interval'] === 'day' ? __('daily', 'word-to-article-importer') : ($settings['schedule_interval'] === 'week' ? __('weekly', 'word-to-article-importer') : __('monthly', 'word-to-article-importer')),
+                    $slots === 1 ? '' : 's',
+                    $count
+                ));
             }
+
+            for ($i = 0; $i < $count; $i++) {
+                $dates[] = clone $current;
+                $current->add($interval);
+            }
+
             return $dates;
         } catch (Throwable $e) {
             $this->error_handler->log_error(WTAI_Error_Handler::ERR_SCHEDULE_CALCULATION_FAILED, array('error' => $e->getMessage()));
-            return array_fill(0, $count, null);
+            return new WP_Error('wtai_schedule_error', $e->getMessage());
         }
+    }
+
+    private function parse_schedule_date($value, DateTimeZone $timezone) {
+        $value = sanitize_text_field($value);
+        if ($value === '') {
+            return null;
+        }
+        $date = DateTime::createFromFormat('!Y-m-d', $value, $timezone);
+        return ($date && $date->format('Y-m-d') === $value) ? $date : null;
+    }
+
+    private function count_schedule_slots(DateTime $start, DateTime $end, $interval_type) {
+        if (!$end) {
+            return PHP_INT_MAX;
+        }
+
+        $count = 0;
+        $current = clone $start;
+        $interval = $this->get_interval($interval_type);
+        while ($current <= $end) {
+            $count++;
+            $current->add($interval);
+            if ($count > 100000) {
+                break;
+            }
+        }
+        return $count;
     }
 
     private function get_interval($interval_type) {

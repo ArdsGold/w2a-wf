@@ -98,8 +98,17 @@
                     alert(response.data && response.data.message ? response.data.message : wtai_ajax.strings.unknown_error);
                 }
             }).fail((xhr) => {
-                const message = xhr.responseJSON?.data?.message || wtai_ajax.strings.unknown_error;
-                alert(message);
+                let message = xhr.responseJSON?.data?.message;
+                if (!message && xhr.responseText) {
+                    try {
+                        const parsed = JSON.parse(xhr.responseText);
+                        message = parsed?.data?.message;
+                    } catch (error) {
+                        const text = $('<div>').html(xhr.responseText).text().trim();
+                        if (text && text.length < 500) message = text;
+                    }
+                }
+                alert(message || wtai_ajax.strings.unknown_error + (xhr.status ? ' (HTTP ' + xhr.status + ')' : ''));
             }).always(() => {
                 $button.prop('disabled', false);
                 $('#wtai-spinner').removeClass('is-active');

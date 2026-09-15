@@ -31,13 +31,18 @@ class WTAI_Docx_Parser {
         }
 
         try {
-            $document_xml = $this->read_zip_entry($file_path, 'word/document.xml');
+            $entries = $this->read_zip_entries($file_path, array(
+                'word/document.xml',
+                'word/numbering.xml',
+                'word/styles.xml',
+            ));
+            $document_xml = isset($entries['word/document.xml']) ? $entries['word/document.xml'] : false;
             if (false === $document_xml || '' === $document_xml) {
                 throw new Exception(__('The DOCX file is missing word/document.xml.', 'word-to-article-importer'));
             }
 
-            $this->numbering = $this->parse_numbering($this->read_zip_entry($file_path, 'word/numbering.xml'));
-            $this->styles = $this->parse_styles($this->read_zip_entry($file_path, 'word/styles.xml'));
+            $this->numbering = $this->parse_numbering(isset($entries['word/numbering.xml']) ? $entries['word/numbering.xml'] : false);
+            $this->styles = $this->parse_styles(isset($entries['word/styles.xml']) ? $entries['word/styles.xml'] : false);
             $xml = simplexml_load_string($document_xml, 'SimpleXMLElement', LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
             if (false === $xml) {
                 throw new Exception(__('The document XML could not be parsed.', 'word-to-article-importer'));
@@ -55,21 +60,26 @@ class WTAI_Docx_Parser {
     }
 
     /**
-     * Read a file from a DOCX ZIP archive. Uses ZipArchive when available and
-     * WordPress' bundled PclZip as a compatibility fallback.
+     * Read multiple files from a DOCX ZIP archive in one pass.
      */
-    private function read_zip_entry($file_path, $entry_name) {
+    private function read_zip_entries($file_path, $entry_names) {
+        $entries = array_fill_keys($entry_names, false);
+
         if (class_exists('ZipArchive')) {
             $zip = new ZipArchive();
-            $result = $zip->open($file_path);
-            if (true !== $result) {
+            if (true !== $zip->open($file_path)) {
                 throw new Exception(__('The DOCX file could not be opened.', 'word-to-article-importer'));
             }
+
             try {
-                return $zip->getFromName($entry_name);
+                foreach ($entry_names as $entry_name) {
+                    $entries[$entry_name] = $zip->getFromName($entry_name);
+                }
             } finally {
                 $zip->close();
             }
+
+            return $entries;
         }
 
         if (!$this->load_pclzip()) {
@@ -77,28 +87,24 @@ class WTAI_Docx_Parser {
         }
 
         $archive = new PclZip($file_path);
-        $entries = $archive->extract(
-            PCLZIP_OPT_BY_NAME,
-            $entry_name,
-            PCLZIP_OPT_EXTRACT_AS_STRING
-        );
-
-        if (0 === $entries || !is_array($entries)) {
-            $error = method_exists($archive, 'errorInfo') ? $archive->errorInfo(true) : '';
-            throw new Exception(sprintf(
-                __('Could not read "%1$s" from the DOCX archive. %2$s', 'word-to-article-importer'),
+        foreach ($entry_names as $entry_name) {
+            $result = $archive->extract(
+                PCLZIP_OPT_BY_NAME,
                 $entry_name,
-                $error
-            ));
-        }
+                PCLZIP_OPT_EXTRACT_AS_STRING
+            );
 
-        foreach ($entries as $entry) {
-            if (isset($entry['filename']) && $entry['filename'] === $entry_name) {
-                return isset($entry['content']) ? $entry['content'] : '';
+            if (is_array($result)) {
+                foreach ($result as $entry) {
+                    if (isset($entry['filename']) && $entry['filename'] === $entry_name) {
+                        $entries[$entry_name] = isset($entry['content']) ? $entry['content'] : '';
+                        break;
+                    }
+                }
             }
         }
 
-        return false;
+        return $entries;
     }
 
     private function load_pclzip() {
@@ -426,10 +432,14 @@ class WTAI_Docx_Parser {
     }
 
     private function is_numbered_format($format) {
-        return in_array($format, array(
-            'decimal', 'decimalZero', 'lowerLetter', 'upperLetter',
-            'lowerRoman', 'upperRoman', 'lowerAlpha', 'upperAlpha'
-        ), true);
+        static $numbered = array(
+            'decimal' => true, 'decimalZero' => true,
+            'lowerLetter' => true, 'upperLetter' => true,
+            'lowerRoman' => true, 'upperRoman' => true,
+            'lowerAlpha' => true, 'upperAlpha' => true,
+        );
+
+        return isset($numbered[$format]);
     }
 
     private function get_heading_level($paragraph, $style_name) {

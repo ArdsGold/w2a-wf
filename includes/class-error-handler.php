@@ -40,15 +40,10 @@ class WTAI_Error_Handler {
         $this->debug_mode = defined('WP_DEBUG') && WP_DEBUG;
     }
     
-    /**
-     * Get error message for error code
-     * 
-     * @param string $error_code Error code
-     * @param array $context Additional context for the error
-     * @return array Error information
-     */
-    public function get_error_info($error_code, $context = array()) {
-        $errors = array(
+    private static function get_error_catalog() {
+        static $errors = null;
+        if (null === $errors) {
+            $errors = array(
             self::ERR_FILE_NOT_FOUND => array(
                 'message' => __('File not found or inaccessible', 'word-to-article-importer'),
                 'description' => __('The specified file could not be found or is not accessible. Please check the file path and permissions.', 'word-to-article-importer'),
@@ -171,25 +166,36 @@ class WTAI_Error_Handler {
             )
         );
         
+        }
+        return $errors;
+    }
+
+    public function get_error_info($error_code, $context = array()) {
+        $errors = self::get_error_catalog();
         $error_info = isset($errors[$error_code]) ? $errors[$error_code] : $errors[self::ERR_UNKNOWN_ERROR];
-        
-        // Add context to the error
+
         if (!empty($context)) {
             $error_info['context'] = $context;
         }
-        
-        // Add debug information if debug mode is enabled
+
         if ($this->debug_mode) {
             $error_info['debug'] = array(
                 'timestamp' => current_time('mysql'),
                 'backtrace' => $this->get_backtrace(),
-                'server_info' => $this->get_server_debug_info()
+                'server_info' => $this->get_server_debug_info(),
             );
         }
-        
+
         return $error_info;
     }
-    
+
+    /**
+     * Get error information for an error code.
+     *
+     * @param string $error_code Error code.
+     * @param array  $context   Additional context.
+     * @return array Error information.
+     */
     /**
      * Log an error
      * 
