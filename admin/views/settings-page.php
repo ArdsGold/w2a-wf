@@ -1,224 +1,53 @@
 <?php
-/**
- * Settings Page View
- * Plugin settings and configuration
- */
-
-if (!defined('ABSPATH')) {
-    exit;
-}
-
-$admin_page = new WTAI_Admin_Page();
-$settings = $admin_page->get_settings();
-$authors = $admin_page->get_authors();
-$categories = $admin_page->get_categories();
+/** Settings maintenance, import history, and diagnostics. */
+if (!defined('ABSPATH')) exit;
 ?>
+<div class="wtai-settings-page">
+    <div class="wtai-container">
+        <div class="wtai-main-content">
+            <section class="wtai-card wtai-settings-tools">
+                <h3><?php _e('Pixabay Image Fallback', 'wolf-forge-article-generator'); ?></h3>
+                <p><?php _e('Enable the optional fallback on Image Media Library, then Submit articles normally. Photos are downloaded to your own Media Library, not hotlinked. This key is separate from Google Drive and Google Places.', 'wolf-forge-article-generator'); ?></p>
+                <label for="wtai-pixabay-api-key"><?php _e('Pixabay API key override', 'wolf-forge-article-generator'); ?></label>
+                <input type="password" id="wtai-pixabay-api-key" autocomplete="new-password" spellcheck="false" value="">
+                <p><button type="button" class="button" id="wtai-pixabay-save-key"><?php _e('Save Key', 'wolf-forge-article-generator'); ?></button> <button type="button" class="button" id="wtai-pixabay-remove-key"><?php _e('Remove Override', 'wolf-forge-article-generator'); ?></button></p>
+                <p id="wtai-pixabay-key-status" role="status" aria-live="polite"><?php echo esc_html(WTAI_Pixabay::status()['message']); ?></p>
+                <p class="description"><?php _e('Saved keys are never displayed and survive Reset Options. Optional defaults: WTAI_PIXABAY_API_KEY in wp-config.php or pixabay_api_key in the pluginâ€™s private config.php. Removing an override restores that default, if configured.', 'wolf-forge-article-generator'); ?> <a href="https://pixabay.com/api/docs/" target="_blank" rel="noopener"><?php _e('Get a Pixabay API key', 'wolf-forge-article-generator'); ?></a></p>
+            </section>
+            <section class="wtai-card wtai-settings-tools">
+                <h3><?php _e('Google Drive API Key', 'wolf-forge-article-generator'); ?></h3>
+                <p><?php _e('Public-folder imports use the default from the plugin’s private config.php, or WTAI_GOOGLE_DRIVE_API_KEY in wp-config.php, unless you save an override below. Enable Google Drive API in the key’s Cloud project. This is separate from Google Business Profile image credentials.', 'wolf-forge-article-generator'); ?></p>
+                <label for="wtai-drive-api-key"><?php _e('Your Google Drive API key override', 'wolf-forge-article-generator'); ?></label>
+                <input type="password" id="wtai-drive-api-key" autocomplete="new-password" spellcheck="false" value="">
+                <p><button type="button" class="button" id="wtai-drive-save-key"><?php _e('Save Override', 'wolf-forge-article-generator'); ?></button> <button type="button" class="button" id="wtai-drive-remove-key"><?php _e('Use Server Default', 'wolf-forge-article-generator'); ?></button></p>
+                <p id="wtai-drive-key-status" role="status" aria-live="polite"></p>
+                <p class="description"><?php _e('Saved keys are not displayed. The override takes effect on the next Drive request and survives Reset Options. A different key on the same Cloud project does not provide a separate project quota; a file download limit may still apply with another project.', 'wolf-forge-article-generator'); ?></p>
+            </section>
+            <div class="wtai-card wtai-settings-tools" id="wtai-settings">
+                <h3><?php _e('Settings & Logs', 'wolf-forge-article-generator'); ?></h3>
+                <p><?php _e('Formatting and publishing preferences save on Generate Articles; image preferences save on Image Media Library.', 'wolf-forge-article-generator'); ?></p>
+                <p data-wtai-options-status role="status" aria-live="polite"></p>
+                <p><button type="button" class="button" id="wtai-reset-settings"><?php _e('Reset Options to Defaults', 'wolf-forge-article-generator'); ?></button></p>
+                <p><button type="button" class="button" id="wtai-clear-history"><?php _e('Clear Import History', 'wolf-forge-article-generator'); ?></button></p>
+                <p><button type="button" class="button" id="wtai-view-error-stats"><?php _e('View Error Statistics', 'wolf-forge-article-generator'); ?></button></p>
+                <p><button type="button" class="button" id="wtai-clear-error-logs"><?php _e('Clear Error Logs', 'wolf-forge-article-generator'); ?></button></p>
+                <p class="description"><?php _e('Clearing logs or history does not delete articles.', 'wolf-forge-article-generator'); ?></p>
+                <div id="wtai-error-stats-section" style="display:none;">
+                    <h4><?php _e('Error Statistics', 'wolf-forge-article-generator'); ?></h4>
+                    <div id="wtai-error-stats-content"></div>
+                </div>
+            </div>
 
-<div class="wrap wtai-settings-page">
-    <h1><?php _e('Word to Article Importer Settings', 'word-to-article-importer'); ?></h1>
-    
-    <form method="post" action="options.php">
-        <?php settings_fields('wtai_settings'); ?>
-        
-        <div class="wtai-settings-container">
-            <div class="wtai-settings-section">
-                <h2><?php _e('Content Processing Defaults', 'word-to-article-importer'); ?></h2>
-                
-                <table class="form-table">
-                    <tr>
-                        <th scope="row">
-                            <label for="wtai_convert_numbered_to_dotted"><?php _e('Convert Numbered to Dotted Lists', 'word-to-article-importer'); ?></label>
-                        </th>
-                        <td>
-                            <input type="hidden" name="wtai_convert_numbered_to_dotted" value="0" />
-                            <input type="checkbox" name="wtai_convert_numbered_to_dotted" id="wtai_convert_numbered_to_dotted" value="1" <?php checked($settings['convert_numbered_to_dotted']); ?> />
-                            <p class="description"><?php _e('Default setting for converting numbered lists to bullet points', 'word-to-article-importer'); ?></p>
-                        </td>
-                    </tr>
-                    
-                    <tr>
-                        <th scope="row">
-                            <label for="wtai_unbold_except_headings"><?php _e('Remove Bold Except Headings', 'word-to-article-importer'); ?></label>
-                        </th>
-                        <td>
-                            <input type="hidden" name="wtai_unbold_except_headings" value="0" />
-                            <input type="checkbox" name="wtai_unbold_except_headings" id="wtai_unbold_except_headings" value="1" <?php checked($settings['unbold_except_headings']); ?> />
-                            <p class="description"><?php _e('Default setting for removing bold formatting from non-heading text', 'word-to-article-importer'); ?></p>
-                        </td>
-                    </tr>
-                    
-                    <tr>
-                        <th scope="row">
-                            <label for="wtai_auto_insert_images"><?php _e('Auto-insert Images', 'word-to-article-importer'); ?></label>
-                        </th>
-                        <td>
-                            <input type="hidden" name="wtai_auto_insert_images" value="0" />
-                            <input type="checkbox" name="wtai_auto_insert_images" id="wtai_auto_insert_images" value="1" <?php checked($settings['auto_insert_images']); ?> />
-                            <p class="description"><?php _e('Default setting for automatic image insertion', 'word-to-article-importer'); ?></p>
-                        </td>
-                    </tr>
-                    
-                    <tr>
-                        <th scope="row">
-                            <label for="wtai_image_matching_method"><?php _e('Image Matching Method', 'word-to-article-importer'); ?></label>
-                        </th>
-                        <td>
-                            <select name="wtai_image_matching_method" id="wtai_image_matching_method">
-                                <option value="title" <?php selected($settings['image_matching_method'], 'title'); ?>><?php _e('By Image Title', 'word-to-article-importer'); ?></option>
-                                <option value="description" <?php selected($settings['image_matching_method'], 'description'); ?>><?php _e('By Image Description', 'word-to-article-importer'); ?></option>
-                                <option value="both" <?php selected($settings['image_matching_method'], 'both'); ?>><?php _e('By Title AND Description', 'word-to-article-importer'); ?></option>
-                            </select>
-                            <p class="description"><?php _e('Default method for matching images to content', 'word-to-article-importer'); ?></p>
-                        </td>
-                    </tr>
-                    
-                    <tr>
-                        <th scope="row">
-                            <label for="wtai_max_images_per_post"><?php _e('Maximum Images per Post', 'word-to-article-importer'); ?></label>
-                        </th>
-                        <td>
-                            <input type="number" name="wtai_max_images_per_post" id="wtai_max_images_per_post" value="<?php echo esc_attr($settings['max_images_per_post']); ?>" min="0" max="10" />
-                            <p class="description"><?php _e('Default maximum number of images to insert per post (0-10)', 'word-to-article-importer'); ?></p>
-                        </td>
-                    </tr>
-                </table>
-            </div>
-            
-            <div class="wtai-settings-section">
-                <h2><?php _e('Default Post Settings', 'word-to-article-importer'); ?></h2>
-                
-                <table class="form-table">
-                    <tr>
-                        <th scope="row">
-                            <label for="wtai_default_author"><?php _e('Default Author', 'word-to-article-importer'); ?></label>
-                        </th>
-                        <td>
-                            <select name="wtai_default_author" id="wtai_default_author">
-                                <?php foreach ($authors as $author): ?>
-                                    <option value="<?php echo $author->ID; ?>" <?php selected($settings['default_author'], $author->ID); ?>>
-                                        <?php echo esc_html($author->display_name); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                            <p class="description"><?php _e('Default author for imported posts', 'word-to-article-importer'); ?></p>
-                        </td>
-                    </tr>
-                    
-                    <tr>
-                        <th scope="row">
-                            <label for="wtai_default_category"><?php _e('Default Category', 'word-to-article-importer'); ?></label>
-                        </th>
-                        <td>
-                            <select name="wtai_default_category" id="wtai_default_category">
-                                <?php foreach ($categories as $category): ?>
-                                    <option value="<?php echo $category->term_id; ?>" <?php selected($settings['default_category'], $category->term_id); ?>>
-                                        <?php echo esc_html($category->name); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                            <p class="description"><?php _e('Default category for imported posts', 'word-to-article-importer'); ?></p>
-                        </td>
-                    </tr>
-                </table>
-            </div>
-            
-            <div class="wtai-settings-section">
-                <h2><?php _e('Scheduling Defaults', 'word-to-article-importer'); ?></h2>
-                
-                <table class="form-table">
-                    <tr>
-                        <th scope="row">
-                            <label for="wtai_publish_schedule"><?php _e('Default Publish Schedule', 'word-to-article-importer'); ?></label>
-                        </th>
-                        <td>
-                            <select name="wtai_publish_schedule" id="wtai_publish_schedule">
-                                <option value="immediate" <?php selected($settings['publish_schedule'], 'immediate'); ?>><?php _e('Publish Immediately', 'word-to-article-importer'); ?></option>
-                                <option value="custom_range" <?php selected($settings['publish_schedule'], 'custom_range'); ?>><?php _e('Schedule Over Date Range', 'word-to-article-importer'); ?></option>
-                                <option value="specific_date" <?php selected($settings['publish_schedule'], 'specific_date'); ?>><?php _e('Start from Specific Date', 'word-to-article-importer'); ?></option>
-                            </select>
-                            <p class="description"><?php _e('Default scheduling behavior for bulk imports', 'word-to-article-importer'); ?></p>
-                        </td>
-                    </tr>
-                    
-                    <tr>
-                        <th scope="row">
-                            <label for="wtai_schedule_start_date"><?php _e('Default Start Date', 'word-to-article-importer'); ?></label>
-                        </th>
-                        <td>
-                            <input type="date" name="wtai_schedule_start_date" id="wtai_schedule_start_date" value="<?php echo esc_attr($settings['schedule_start_date']); ?>" />
-                            <p class="description"><?php _e('Default start date for scheduled posts', 'word-to-article-importer'); ?></p>
-                        </td>
-                    </tr>
-                    
-                    <tr>
-                        <th scope="row">
-                            <label for="wtai_schedule_end_date"><?php _e('Default End Date', 'word-to-article-importer'); ?></label>
-                        </th>
-                        <td>
-                            <input type="date" name="wtai_schedule_end_date" id="wtai_schedule_end_date" value="<?php echo esc_attr($settings['schedule_end_date']); ?>" />
-                            <p class="description"><?php _e('Default end date for scheduled posts (for date range scheduling)', 'word-to-article-importer'); ?></p>
-                        </td>
-                    </tr>
-                    
-                    <tr>
-                        <th scope="row">
-                            <label for="wtai_schedule_interval"><?php _e('Default Interval', 'word-to-article-importer'); ?></label>
-                        </th>
-                        <td>
-                            <select name="wtai_schedule_interval" id="wtai_schedule_interval">
-                                <option value="day" <?php selected($settings['schedule_interval'], 'day'); ?>><?php _e('Daily', 'word-to-article-importer'); ?></option>
-                                <option value="week" <?php selected($settings['schedule_interval'], 'week'); ?>><?php _e('Weekly', 'word-to-article-importer'); ?></option>
-                                <option value="month" <?php selected($settings['schedule_interval'], 'month'); ?>><?php _e('Monthly', 'word-to-article-importer'); ?></option>
-                            </select>
-                            <p class="description"><?php _e('Default interval between scheduled posts', 'word-to-article-importer'); ?></p>
-                        </td>
-                    </tr>
-                </table>
-            </div>
-            
-            <div class="wtai-settings-section">
-                <h2><?php _e('Advanced Options', 'word-to-article-importer'); ?></h2>
-                
-                <table class="form-table">
-                    <tr>
-                        <th scope="row">
-                            <label><?php _e('Import History', 'word-to-article-importer'); ?></label>
-                        </th>
-                        <td>
-                            <button type="button" class="button" id="wtai-clear-history"><?php _e('Clear Import History', 'word-to-article-importer'); ?></button>
-                            <p class="description"><?php _e('Remove all records of previous imports', 'word-to-article-importer'); ?></p>
-                        </td>
-                    </tr>
-                    
-                    <tr>
-                        <th scope="row">
-                            <label><?php _e('Error Logs', 'word-to-article-importer'); ?></label>
-                        </th>
-                        <td>
-                            <button type="button" class="button" id="wtai-view-error-stats"><?php _e('View Error Statistics', 'word-to-article-importer'); ?></button>
-                            <button type="button" class="button" id="wtai-clear-error-logs"><?php _e('Clear Error Logs', 'word-to-article-importer'); ?></button>
-                            <p class="description"><?php _e('View and manage error logs for troubleshooting', 'word-to-article-importer'); ?></p>
-                        </td>
-                    </tr>
-                    
-                    <tr>
-                        <th scope="row">
-                            <label><?php _e('Reset Settings', 'word-to-article-importer'); ?></label>
-                        </th>
-                        <td>
-                            <button type="button" class="button" id="wtai-reset-settings"><?php _e('Reset to Defaults', 'word-to-article-importer'); ?></button>
-                            <p class="description"><?php _e('Reset all settings to their default values', 'word-to-article-importer'); ?></p>
-                        </td>
-                    </tr>
-                </table>
-            </div>
-            
-            <div class="wtai-settings-section" id="wtai-error-stats-section" style="display: none;">
-                <h2><?php _e('Error Statistics', 'word-to-article-importer'); ?></h2>
-                <div id="wtai-error-stats-content"></div>
+            <div class="wtai-card">
+                <h3><?php _e('Import History', 'wolf-forge-article-generator'); ?></h3>
+                <p><button type="button" class="button" id="wtai-copy-imports" data-wtai-copy-imports disabled><?php _e('Copy All Imports', 'wolf-forge-article-generator'); ?></button></p>
+                <p class="description"><?php _e('Copy completed imports shown below as a numbered list of linked post titles. Rich text destinations retain clickable titles; plain text includes the URLs.', 'wolf-forge-article-generator'); ?></p>
+                <p id="wtai-history-status" data-wtai-copy-status role="status" aria-live="polite"></p>
+                <div id="wtai-import-history"><p><?php _e('Loading recent imports...', 'wolf-forge-article-generator'); ?></p></div>
             </div>
         </div>
-        
-        <?php submit_button(__('Save Settings', 'word-to-article-importer')); ?>
-    </form>
+        <aside class="wtai-sidebar">
+            <div class="wtai-card"><?php echo (new WTAI_Server_Info())->render_server_info(); ?></div>
+        </aside>
+    </div>
 </div>

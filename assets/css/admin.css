@@ -1,5 +1,5 @@
 /**
- * Word to Article Importer - Admin Styles
+ * Wolf Forge Article Generator - Admin Styles
  */
 
 .wtai-import-page,
@@ -29,7 +29,7 @@
 
 .wtai-card {
     background: #fff;
-    border: 1px solid #ccd0d4;
+    border: 1px solid #dcdcde;
     padding: 20px;
     border-radius: 4px;
     box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
@@ -125,7 +125,7 @@
 
 .wtai-file-drop-zone:hover,
 .wtai-file-drop-zone.dragover {
-    border-color: #0073aa;
+    border-color: #2271b1;
     background: #f0f6fc;
 }
 
@@ -133,7 +133,7 @@
     font-size: 48px;
     width: 48px;
     height: 48px;
-    color: #0073aa;
+    color: #2271b1;
     margin-bottom: 10px;
 }
 
@@ -160,11 +160,13 @@
 
 .wtai-file-item .dashicons {
     margin-right: 10px;
-    color: #0073aa;
+    color: #2271b1;
 }
 
 .wtai-file-item .wtai-file-name {
     flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
     font-size: 13px;
 }
 
@@ -187,6 +189,7 @@
 /* Form Actions */
 .wtai-form-actions {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 15px;
     margin-top: 20px;
@@ -209,7 +212,7 @@
 /* Results Card */
 .wtai-results-card {
     background: #f9f9f9;
-    border-left: 4px solid #0073aa;
+    border-left: 4px solid #2271b1;
 }
 
 .wtai-result-item {
@@ -221,11 +224,15 @@
 }
 
 .wtai-result-item.success {
-    border-left: 4px solid #46b450;
+    border-left: 4px solid #00a32a;
 }
 
 .wtai-result-item.error {
-    border-left: 4px solid #dc3232;
+    border-left: 4px solid #b32d2e;
+}
+
+.wtai-result-item.warning {
+    border-left: 4px solid #d97706;
 }
 
 .wtai-result-item h4 {
@@ -241,54 +248,11 @@
 
 .wtai-result-item .wtai-result-meta {
     display: flex;
+    flex-wrap: wrap;
     gap: 15px;
     margin-top: 8px;
     font-size: 12px;
     color: #888;
-}
-
-/* Media Preview */
-.wtai-media-preview {
-    max-height: 300px;
-    overflow-y: auto;
-    margin: 15px 0;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
-    gap: 10px;
-}
-
-.wtai-media-item {
-    position: relative;
-    border: 2px solid #ddd;
-    border-radius: 4px;
-    overflow: hidden;
-    cursor: pointer;
-    transition: border-color 0.2s;
-}
-
-.wtai-media-item:hover {
-    border-color: #0073aa;
-}
-
-.wtai-media-item img {
-    width: 100%;
-    height: 80px;
-    object-fit: cover;
-    display: block;
-}
-
-.wtai-media-item .wtai-media-title {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background: rgba(0, 0, 0, 0.7);
-    color: #fff;
-    font-size: 10px;
-    padding: 4px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
 }
 
 /* Import History */
@@ -311,33 +275,11 @@
     font-weight: 600;
 }
 
-.wtai-history-item .wtai-history-link {
-    color: #0073aa;
-    text-decoration: none;
-}
-
-.wtai-history-item .wtai-history-link:hover {
-    text-decoration: underline;
-}
-
-/* Settings Page */
-.wtai-settings-container {
+.wtai-history-actions {
     display: flex;
-    flex-direction: column;
-    gap: 30px;
-}
-
-.wtai-settings-section {
-    background: #fff;
-    border: 1px solid #ccd0d4;
-    padding: 20px;
-    border-radius: 4px;
-}
-
-.wtai-settings-section h2 {
-    margin-top: 0;
-    padding-bottom: 15px;
-    border-bottom: 1px solid #eee;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
 }
 
 /* Responsive Design */
@@ -361,19 +303,19 @@
 
 .wtai-status-message.success {
     background: #f7f7f7;
-    border-left: 4px solid #46b450;
+    border-left: 4px solid #00a32a;
     color: #333;
 }
 
 .wtai-status-message.error {
     background: #f7f7f7;
-    border-left: 4px solid #dc3232;
+    border-left: 4px solid #b32d2e;
     color: #333;
 }
 
 .wtai-status-message.info {
     background: #f7f7f7;
-    border-left: 4px solid #0073aa;
+    border-left: 4px solid #2271b1;
     color: #333;
 }
 
@@ -415,18 +357,38 @@
 }
 
 .wtai-status-good {
-    color: #46b450;
+    color: #00a32a;
     font-weight: 600;
 }
 
 .wtai-status-bad {
-    color: #dc3232;
+    color: #b32d2e;
     font-weight: 600;
 }
 
 /* Schedule Options Animation */
 .wtai-schedule-options {
     animation: fadeIn 0.3s ease-in;
+}
+
+.wtai-month-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(100px, 1fr);
+    gap: 12px;
+    max-width: 420px;
+}
+.wtai-date-shortcuts { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.wtai-schedule-options .description { color: #50575e; font-weight: 400; }
+.wtai-date-error { color: #b32d2e; font-weight: 600; }
+.wtai-date-error:empty { display: none; }
+.wtai-date-notice { border-left: 3px solid #dba617; padding-left: 10px; }
+.wtai-schedule-preview { margin-top: 16px; padding: 14px 16px; border: 1px solid #c3c4c7; border-radius: 4px; background: #f6f7f7; }
+.wtai-schedule-preview:empty { display: none; }
+.wtai-schedule-preview p:last-child { margin-bottom: 0; }
+.wtai-schedule-preview ol { margin: 10px 0 0 24px; }
+@media (max-width: 480px) {
+    .wtai-month-controls { grid-template-columns: 1fr; }
+    .wtai-schedule-options input[type="date"] { min-width: 0; max-width: 100%; }
 }
 
 @keyframes fadeIn {
@@ -440,11 +402,44 @@
     }
 }
 
-/* Image Matching Options Animation */
-.wtai-image-matching-options {
-    animation: fadeIn 0.3s ease-in;
-    margin-top: 15px;
-    padding: 15px;
-    background: #f9f9f9;
-    border-radius: 4px;
+/* Shared WordPress-native presentation with Wolf Forge Page Generator. */
+.wtai-version { color: #646970; font-size: 13px; font-weight: 400; vertical-align: middle; }
+.wtai-import-page .nav-tab-wrapper { margin-top: 20px; }
+.wtai-file-drop-zone:focus-visible { outline: 2px solid #2271b1; outline-offset: 2px; }
+#wtai-import-progress { width: 100%; margin-top: 16px; accent-color: #2271b1; }
+#wtai-progress-text { overflow-wrap: anywhere; }
+[data-wtai-options-status] { color: #50575e; }
+[data-wtai-options-status].wtai-save-error { color: #b32d2e; }
+.wtai-duplicates { margin-top: 20px; }
+.wtai-duplicate-table { overflow-x: auto; }
+.wtai-duplicate-table th { min-width: 130px; }
+.wtai-duplicate-table td { vertical-align: middle; overflow-wrap: anywhere; }
+.wtai-duplicate-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.wtai-duplicate-actions form { margin: 0; }
+.wtai-trash-duplicate { color: #b32d2e !important; border-color: #b32d2e !important; }
+.wtai-image-page { margin-top: 20px; }
+.wtai-image-page .wtai-container { grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); }
+.wtai-image-page textarea { width: 100%; box-sizing: border-box; }
+.wtai-metadata-browser { display: grid; gap: 14px; max-height: 750px; overflow-y: auto; margin: 16px 0; }
+.wtai-metadata-card { border: 1px solid #dcdcde; padding: 12px; overflow-wrap: anywhere; }
+.wtai-metadata-card img { width: 100%; max-height: 160px; object-fit: contain; background: #f6f7f7; }
+.wtai-metadata-card h4 { margin: 10px 0; }
+.wtai-metadata-card p { margin: 6px 0; }
+.wtai-media-pagination { display: flex; gap: 8px; }
+.wtai-article-preview:not(:empty) { padding: 16px; border: 1px solid #dcdcde; margin-top: 16px; overflow-wrap: anywhere; }
+.wtai-article-preview img { max-width: 100%; height: auto; }
+.wtai-article-preview figure { margin: 24px 0; }
+.wtai-article-preview figcaption { color: #646970; text-align: center; }
+@media (max-width: 900px) { .wtai-image-page .wtai-container { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) {
+    .wtai-schedule-options { animation: none; }
 }
+
+.wtai-tab-panel[hidden] { display: none; }
+
+#wtai-drive-options[hidden], #wtai-local-upload[hidden], #wtai-file-list[hidden], #wtai-drive-more[hidden] { display: none; }
+#wtai-drive-folder, #wtai-drive-api-key { width: 100%; max-width: 100%; box-sizing: border-box; }
+#wtai-drive-files { max-height: 360px; overflow-y: auto; }
+#wtai-drive-files .wtai-file-item { gap: 12px; }
+#wtai-drive-files input { flex-shrink: 0; }
+#wtai-drive-files .wtai-file-name { overflow-wrap: anywhere; }

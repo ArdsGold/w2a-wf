@@ -1,26 +1,28 @@
 <?php
 /**
- * Plugin Name: Word to Article Importer
+ * Plugin Name: Wolf Forge Article Generator
  * Description: Import .docx files as WordPress articles with bulk upload, formatting cleanup, scheduling, and optional media matching.
- * Version: 3.0.0
+ * Version: r4.0.0
  * Author: Macky Villafuerte, Arden Guinto
  * License: GPL v2 or later
- * Text Domain: word-to-article-importer
+ * Requires at least: 6.0
+ * Requires PHP: 7.4
+ * Text Domain: wolf-forge-article-generator
  */
 
 if (!defined('ABSPATH')) {
     exit;
 }
 
-define('WTAI_VERSION', '1.10.1');
+define('WTAI_VERSION', 'r4.0.0');
 define('WTAI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('WTAI_PLUGIN_URL', plugin_dir_url(__FILE__));
-define('WTAI_PLUGIN_BASENAME', plugin_basename(__FILE__));
 
 class Word_To_Article_Importer {
+    private const Plugin_Icon = "icon.png";
     private static $instance = null;
     private $error_handler;
-    private $admin_page;
+    private $admin_hooks = array();
 
     public static function get_instance() {
         if (null === self::$instance) {
@@ -31,11 +33,14 @@ class Word_To_Article_Importer {
 
     private function __construct() {
         $this->includes();
+        WTAI_Media_Index::register_hooks();
+        add_shortcode('wtai_gbp_photo', array('WTAI_GBP_Photos', 'shortcode'));
         $this->error_handler = new WTAI_Error_Handler();
-        $this->admin_page = new WTAI_Admin_Page();
+        add_action('admin_init', array($this, 'maybe_upgrade'));
+        add_action('admin_menu', array($this, 'redirect_legacy_settings'), 1);
+        add_action('admin_post_wtai_trash_duplicate', array($this, 'trash_duplicate'));
 
         register_activation_hook(__FILE__, array($this, 'activate'));
-        register_deactivation_hook(__FILE__, array($this, 'deactivate'));
 
         if (is_admin()) {
             add_action('admin_menu', array($this, 'add_admin_menu'));
@@ -43,8 +48,16 @@ class Word_To_Article_Importer {
         }
 
         add_action('wp_ajax_wtai_upload_documents', array($this, 'ajax_upload_documents'));
+        add_action('wp_ajax_wtai_validate_import', array($this, 'ajax_validate_import'));
+        add_action('wp_ajax_wtai_save_settings', array($this, 'ajax_save_settings'));
         add_action('wp_ajax_wtai_get_media_images', array($this, 'ajax_get_media_images'));
+        add_action('wp_ajax_wtai_preview_images', array($this, 'ajax_preview_images'));
+        add_action('wp_ajax_wtai_refresh_media_index', array($this, 'ajax_refresh_media_index'));
+        add_action('wp_ajax_wtai_google_photos', array($this, 'ajax_google_photos'));
+        add_action('wp_ajax_wtai_google_drive', array($this, 'ajax_google_drive'));
+        add_action('wp_ajax_wtai_pixabay', array($this, 'ajax_pixabay'));
         add_action('wp_ajax_wtai_get_import_history', array($this, 'ajax_get_import_history'));
+        add_action('wp_ajax_wtai_trash_import', array($this, 'ajax_trash_import'));
         add_action('wp_ajax_wtai_clear_import_history', array($this, 'ajax_clear_import_history'));
         add_action('wp_ajax_wtai_reset_settings', array($this, 'ajax_reset_settings'));
         add_action('wp_ajax_wtai_get_error_stats', array($this, 'ajax_get_error_stats'));
@@ -52,26 +65,37 @@ class Word_To_Article_Importer {
     }
 
     private function includes() {
+        require_once WTAI_PLUGIN_DIR . 'includes/class-settings.php';
+        require_once WTAI_PLUGIN_DIR . 'includes/class-scheduler.php';
+        require_once WTAI_PLUGIN_DIR . 'includes/class-seo.php';
+        require_once WTAI_PLUGIN_DIR . 'includes/class-importer.php';
+        require_once WTAI_PLUGIN_DIR . 'includes/class-internal-linker.php';
+        require_once WTAI_PLUGIN_DIR . 'includes/class-duplicate-pages.php';
         require_once WTAI_PLUGIN_DIR . 'includes/class-error-handler.php';
         require_once WTAI_PLUGIN_DIR . 'includes/class-docx-parser.php';
         require_once WTAI_PLUGIN_DIR . 'includes/class-content-processor.php';
         require_once WTAI_PLUGIN_DIR . 'includes/class-image-matcher.php';
+        require_once WTAI_PLUGIN_DIR . 'includes/class-media-index.php';
+        require_once WTAI_PLUGIN_DIR . 'includes/class-gbp-photos.php';
+        require_once WTAI_PLUGIN_DIR . 'includes/class-google-drive.php';
+        require_once WTAI_PLUGIN_DIR . 'includes/class-pixabay.php';
         require_once WTAI_PLUGIN_DIR . 'includes/class-server-info.php';
-        require_once WTAI_PLUGIN_DIR . 'admin/class-admin-page.php';
     }
 
     public function get_error_handler() {
         return $this->error_handler;
     }
 
+    public function maybe_upgrade() {
+        if (get_option('wtai_schema_version') !== WTAI_VERSION && current_user_can('manage_options')) {
+            $this->activate();
+        }
+    }
+
     public function activate() {
         $this->create_tables();
         $this->set_default_options();
-        flush_rewrite_rules();
-    }
-
-    public function deactivate() {
-        flush_rewrite_rules();
+        update_option('wtai_schema_version', WTAI_VERSION, false);
     }
 
     private function create_tables() {
@@ -95,123 +119,73 @@ class Word_To_Article_Importer {
         dbDelta($sql);
     }
 
-    public function get_defaults() {
-        return array(
-            'convert_numbered_to_dotted' => false,
-            'unbold_except_headings' => false,
-            'auto_insert_images' => false,
-            'image_matching_method' => 'title',
-            'max_images_per_post' => 3,
-            'default_author' => get_current_user_id(),
-            'default_category' => (int) get_option('default_category', 1),
-            'publish_schedule' => 'immediate',
-            'schedule_start_date' => '',
-            'schedule_end_date' => '',
-            'schedule_interval' => 'day',
-        );
-    }
-
     private function set_default_options() {
-        foreach ($this->get_defaults() as $key => $value) {
-            if (false === get_option('wtai_' . $key, false)) {
+        foreach (WTAI_Settings::defaults() as $key => $value) {
+            if (null === get_option('wtai_' . $key, null)) {
                 add_option('wtai_' . $key, $value);
             }
         }
     }
 
     public function add_admin_menu() {
-        add_menu_page(
-            __('Word to Article Importer', 'word-to-article-importer'),
-            __('Word Importer', 'word-to-article-importer'),
+        $this->admin_hooks[] = add_menu_page(
+            __('Wolf Forge Article Generator', 'wolf-forge-article-generator'),
+            __('Wolf Forge Articles', 'wolf-forge-article-generator'),
             'manage_options',
             'word-to-article-importer',
             array($this, 'render_admin_page'),
-            'dashicons-media-document',
-            30
+            WTAI_PLUGIN_URL . self::Plugin_Icon,
+            59
         );
 
-        add_submenu_page(
-            'word-to-article-importer',
-            __('Import Settings', 'word-to-article-importer'),
-            __('Settings', 'word-to-article-importer'),
-            'manage_options',
-            'word-to-article-importer-settings',
-            array($this, 'render_settings_page')
-        );
     }
 
     public function enqueue_admin_scripts($hook) {
-        if ('toplevel_page_word-to-article-importer' !== $hook && 'word-importer_page_word-to-article-importer-settings' !== $hook) {
+        wp_add_inline_style('admin-menu', '#adminmenu #toplevel_page_word-to-article-importer .wp-menu-image img { width: 20px; height: 20px; object-fit: contain; }');
+        if (!in_array($hook, $this->admin_hooks, true)) {
             return;
         }
 
-        wp_enqueue_style('wtai-admin-style', WTAI_PLUGIN_URL . 'assets/css/admin.css', array(), WTAI_VERSION);
-        wp_enqueue_script('wtai-admin-script', WTAI_PLUGIN_URL . 'assets/js/admin.js', array('jquery'), WTAI_VERSION, true);
+        $css_version = WTAI_VERSION . '-' . md5_file(WTAI_PLUGIN_DIR . 'assets/css/admin.css');
+        $js_version = WTAI_VERSION . '-' . md5_file(WTAI_PLUGIN_DIR . 'assets/js/admin.js');
+        wp_enqueue_style('wtai-admin-style', WTAI_PLUGIN_URL . 'assets/css/admin.css', array(), $css_version);
+        wp_enqueue_script('wtai-admin-script', WTAI_PLUGIN_URL . 'assets/js/admin.js', array('jquery'), $js_version, true);
         wp_localize_script('wtai-admin-script', 'wtai_ajax', array(
             'ajax_url' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('wtai_ajax_nonce'),
+            'max_upload_size' => wp_max_upload_size(),
             'edit_post_url' => admin_url('post.php') . '?post=%d&action=edit',
             'strings' => array(
-                'select_file' => __('Please select at least one .docx file.', 'word-to-article-importer'),
-                'invalid_file' => __('Only .docx files are supported.', 'word-to-article-importer'),
-                'uploading' => __('Importing documents...', 'word-to-article-importer'),
-                'unknown_error' => __('An unexpected error occurred.', 'word-to-article-importer'),
+                'select_file' => __('Please select at least one .docx file.', 'wolf-forge-article-generator'),
+                'invalid_file' => __('Only .docx files are supported.', 'wolf-forge-article-generator'),
+                'uploading' => __('Importing documents...', 'wolf-forge-article-generator'),
+                'unknown_error' => __('An unexpected error occurred.', 'wolf-forge-article-generator'),
             ),
         ));
     }
 
     public function render_admin_page() {
-        require WTAI_PLUGIN_DIR . 'admin/views/import-page.php';
+        if (!current_user_can('manage_options')) return;
+        require WTAI_PLUGIN_DIR . 'admin/views/admin-page.php';
     }
 
-    public function render_settings_page() {
-        require WTAI_PLUGIN_DIR . 'admin/views/settings-page.php';
+    public function trash_duplicate() {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') wp_die(esc_html__('Invalid request.', 'wolf-forge-article-generator'), '', array('response' => 405));
+        if (!current_user_can('manage_options')) wp_die(esc_html__('Permission denied.', 'wolf-forge-article-generator'), '', array('response' => 403));
+        $post_id = isset($_POST['post_id']) && is_scalar($_POST['post_id']) ? absint($_POST['post_id']) : 0;
+        check_admin_referer('wtai_trash_duplicate_' . $post_id);
+        $result = WTAI_Duplicate_Pages::trash($post_id);
+        if (is_wp_error($result)) wp_die(esc_html($result->get_error_message()), '', array('response' => 400, 'back_link' => true));
+        $page = isset($_POST['duplicate_page']) && is_scalar($_POST['duplicate_page']) ? max(1, absint($_POST['duplicate_page'])) : 1;
+        wp_safe_redirect(add_query_arg(array('page' => 'word-to-article-importer', 'tab' => 'duplicates', 'duplicate_page' => $page, 'duplicate_trashed' => 1), admin_url('admin.php')));
+        exit;
     }
 
-    private function sanitize_import_settings($input) {
-        $defaults = $this->get_defaults();
-        $input = is_array($input) ? wp_unslash($input) : array();
-
-        $settings = array(
-            'convert_numbered_to_dotted' => !empty($input['convert_numbered_to_dotted']),
-            'unbold_except_headings' => !empty($input['unbold_except_headings']),
-            'auto_insert_images' => !empty($input['auto_insert_images']),
-            'image_matching_method' => in_array(isset($input['image_matching_method']) ? $input['image_matching_method'] : '', array('title', 'description', 'both'), true) ? $input['image_matching_method'] : $defaults['image_matching_method'],
-            'max_images_per_post' => min(10, max(0, absint(isset($input['max_images_per_post']) ? $input['max_images_per_post'] : $defaults['max_images_per_post']))),
-            'default_author' => absint(isset($input['default_author']) ? $input['default_author'] : $defaults['default_author']),
-            'default_category' => absint(isset($input['default_category']) ? $input['default_category'] : $defaults['default_category']),
-            'publish_schedule' => in_array(isset($input['publish_schedule']) ? $input['publish_schedule'] : '', array('immediate', 'custom_range', 'specific_date'), true) ? $input['publish_schedule'] : 'immediate',
-            'schedule_start_date' => $this->sanitize_date(isset($input['schedule_start_date']) ? $input['schedule_start_date'] : ''),
-            'schedule_end_date' => $this->sanitize_date(isset($input['schedule_end_date']) ? $input['schedule_end_date'] : ''),
-            'schedule_interval' => in_array(isset($input['schedule_interval']) ? $input['schedule_interval'] : '', array('day', 'week', 'month'), true) ? $input['schedule_interval'] : 'day',
-        );
-
-        if (!get_user_by('id', $settings['default_author']) || !user_can($settings['default_author'], 'edit_posts')) {
-            $settings['default_author'] = get_current_user_id();
+    public function redirect_legacy_settings() {
+        if (isset($_GET['page']) && $_GET['page'] === 'word-to-article-importer-settings') {
+            wp_safe_redirect(admin_url('admin.php?page=word-to-article-importer&tab=settings'));
+            exit;
         }
-
-        if (!term_exists($settings['default_category'], 'category')) {
-            $settings['default_category'] = (int) get_option('default_category', 1);
-        }
-
-        if ($settings['publish_schedule'] !== 'custom_range') {
-            $settings['schedule_end_date'] = '';
-        }
-
-        if ($settings['publish_schedule'] === 'immediate') {
-            $settings['schedule_start_date'] = '';
-        }
-
-        return $settings;
-    }
-
-    private function sanitize_date($value) {
-        $value = sanitize_text_field($value);
-        if (!$value) {
-            return '';
-        }
-        $date = DateTime::createFromFormat('!Y-m-d', $value, wp_timezone());
-        return ($date && $date->format('Y-m-d') === $value) ? $value : '';
     }
 
     private function normalize_files($files) {
@@ -238,21 +212,21 @@ class Word_To_Article_Importer {
         return $normalized;
     }
 
-    private function validate_docx_upload($file) {
+    private function validate_docx_upload($file, $require_upload = true) {
         if ($file['error'] !== UPLOAD_ERR_OK) {
             return new WP_Error('wtai_upload_error', $this->upload_error_message($file['error']));
         }
-        if (!$file['tmp_name'] || !is_uploaded_file($file['tmp_name'])) {
-            return new WP_Error('wtai_invalid_upload', __('The uploaded file is invalid.', 'word-to-article-importer'));
+        if (!$file['tmp_name'] || ($require_upload && !is_uploaded_file($file['tmp_name']))) {
+            return new WP_Error('wtai_invalid_upload', __('The uploaded file is invalid.', 'wolf-forge-article-generator'));
         }
         if ($file['size'] <= 0) {
-            return new WP_Error('wtai_empty_file', __('The uploaded file is empty.', 'word-to-article-importer'));
+            return new WP_Error('wtai_empty_file', __('The uploaded file is empty.', 'wolf-forge-article-generator'));
         }
         if ($file['size'] > wp_max_upload_size()) {
-            return new WP_Error('wtai_file_too_large', __('The file exceeds the server upload limit.', 'word-to-article-importer'));
+            return new WP_Error('wtai_file_too_large', __('The file exceeds the server upload limit.', 'wolf-forge-article-generator'));
         }
         if (strtolower(pathinfo($file['name'], PATHINFO_EXTENSION)) !== 'docx') {
-            return new WP_Error('wtai_invalid_file_type', __('Only .docx files are supported.', 'word-to-article-importer'));
+            return new WP_Error('wtai_invalid_file_type', __('Only .docx files are supported.', 'wolf-forge-article-generator'));
         }
 
         $finfo = function_exists('finfo_open') ? finfo_open(FILEINFO_MIME_TYPE) : false;
@@ -261,7 +235,7 @@ class Word_To_Article_Importer {
             finfo_close($finfo);
             $allowed = array('application/zip', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/octet-stream');
             if ($mime && !in_array($mime, $allowed, true)) {
-                return new WP_Error('wtai_invalid_file_type', __('The uploaded file is not a valid DOCX/ZIP file.', 'word-to-article-importer'));
+                return new WP_Error('wtai_invalid_file_type', __('The uploaded file is not a valid DOCX/ZIP file.', 'wolf-forge-article-generator'));
             }
         }
         return true;
@@ -269,390 +243,127 @@ class Word_To_Article_Importer {
 
     private function upload_error_message($code) {
         $messages = array(
-            UPLOAD_ERR_INI_SIZE => __('The file exceeds the server upload limit.', 'word-to-article-importer'),
-            UPLOAD_ERR_FORM_SIZE => __('The file exceeds the form upload limit.', 'word-to-article-importer'),
-            UPLOAD_ERR_PARTIAL => __('The file was only partially uploaded.', 'word-to-article-importer'),
-            UPLOAD_ERR_NO_FILE => __('No file was uploaded.', 'word-to-article-importer'),
-            UPLOAD_ERR_NO_TMP_DIR => __('The server is missing its temporary upload directory.', 'word-to-article-importer'),
-            UPLOAD_ERR_CANT_WRITE => __('The server could not write the uploaded file.', 'word-to-article-importer'),
-            UPLOAD_ERR_EXTENSION => __('A server extension stopped the upload.', 'word-to-article-importer'),
+            UPLOAD_ERR_INI_SIZE => __('The file exceeds the server upload limit.', 'wolf-forge-article-generator'),
+            UPLOAD_ERR_FORM_SIZE => __('The file exceeds the form upload limit.', 'wolf-forge-article-generator'),
+            UPLOAD_ERR_PARTIAL => __('The file was only partially uploaded.', 'wolf-forge-article-generator'),
+            UPLOAD_ERR_NO_FILE => __('No file was uploaded.', 'wolf-forge-article-generator'),
+            UPLOAD_ERR_NO_TMP_DIR => __('The server is missing its temporary upload directory.', 'wolf-forge-article-generator'),
+            UPLOAD_ERR_CANT_WRITE => __('The server could not write the uploaded file.', 'wolf-forge-article-generator'),
+            UPLOAD_ERR_EXTENSION => __('A server extension stopped the upload.', 'wolf-forge-article-generator'),
         );
-        return isset($messages[$code]) ? $messages[$code] : __('The file upload failed.', 'word-to-article-importer');
+        return isset($messages[$code]) ? $messages[$code] : __('The file upload failed.', 'wolf-forge-article-generator');
+    }
+
+    private function authorize_ajax() {
+        check_ajax_referer('wtai_ajax_nonce', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Permission denied.', 'wolf-forge-article-generator')), 403);
+        }
+    }
+
+    public function ajax_validate_import() {
+        $this->authorize_ajax();
+        $settings = WTAI_Settings::for_import(isset($_POST['settings']) ? $_POST['settings'] : array());
+        $count = isset($_POST['document_count']) && is_scalar($_POST['document_count']) ? (int) $_POST['document_count'] : 0;
+        if (!empty($_POST['preview'])) {
+            $preview = WTAI_Scheduler::preview($settings, $count);
+            if (is_wp_error($preview)) wp_send_json_error(array('message' => $preview->get_error_message()), 400);
+            wp_send_json_success(array('preview' => $preview));
+        }
+        $dates = WTAI_Scheduler::calculate($settings, $count);
+        if (is_wp_error($dates)) wp_send_json_error(array('message' => $dates->get_error_message()), 400);
+        wp_send_json_success(array('total' => $count, 'settings' => $settings));
+    }
+
+    public function ajax_save_settings() {
+        $this->authorize_ajax();
+        if (!isset($_POST['settings']) || !is_array($_POST['settings'])) {
+            wp_send_json_error(array('message' => __('No options were submitted.', 'wolf-forge-article-generator')), 400);
+        }
+        $settings = WTAI_Settings::save($_POST['settings']);
+        if (is_wp_error($settings)) wp_send_json_error(array('message' => $settings->get_error_message()), 500);
+        wp_send_json_success(array('settings' => $settings));
     }
 
     public function ajax_upload_documents() {
-        check_ajax_referer('wtai_ajax_nonce', 'nonce');
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error(array('message' => __('Permission denied.', 'word-to-article-importer')), 403);
-        }
-
+        $this->authorize_ajax();
         $files = $this->normalize_files(isset($_FILES['documents']) ? $_FILES['documents'] : array());
-        if (!$files) {
-            wp_send_json_error(array('message' => __('No files uploaded.', 'word-to-article-importer')), 400);
+        if (count($files) !== 1) {
+            wp_send_json_error(array('message' => __('Upload one document per request. Reload the import page to update the interface.', 'wolf-forge-article-generator')), 400);
         }
-
-        $settings = $this->sanitize_import_settings(isset($_POST['settings']) ? $_POST['settings'] : array());
-        $publish_dates = $this->calculate_publish_dates($settings, count($files));
-        if (is_wp_error($publish_dates)) {
-            wp_send_json_error(array('message' => $publish_dates->get_error_message()), 400);
+        $settings = WTAI_Settings::for_import(isset($_POST['settings']) ? $_POST['settings'] : array());
+        $count = isset($_POST['document_count']) && is_scalar($_POST['document_count']) ? (int) $_POST['document_count'] : 1;
+        $index = isset($_POST['document_index']) && is_scalar($_POST['document_index']) ? (int) $_POST['document_index'] : 0;
+        $dates = WTAI_Scheduler::calculate($settings, $count);
+        if (is_wp_error($dates) || $index < 0 || $index >= $count) {
+            $message = is_wp_error($dates) ? $dates->get_error_message() : __('Invalid document position.', 'wolf-forge-article-generator');
+            wp_send_json_error(array('message' => $message), 400);
         }
-        $parser = new WTAI_Docx_Parser($this->error_handler);
-        $processor = new WTAI_Content_Processor($this->error_handler);
-        $image_matcher = new WTAI_Image_Matcher($this->error_handler);
-        $results = array();
-        $errors = array();
-
-        foreach ($files as $index => $file) {
-            try {
-                $valid = $this->validate_docx_upload($file);
-                if (is_wp_error($valid)) {
-                    throw new Exception($valid->get_error_message());
-                }
-
-                $content = $parser->parse($file['tmp_name']);
-                $processed_content = $processor->process($content, $settings);
-                $processed_content = $this->sanitize_imported_html($processed_content);
-
-                if ($settings['auto_insert_images'] && $settings['max_images_per_post'] > 0) {
-                    $processed_content = $image_matcher->insert_images($processed_content, $settings);
-                }
-
-                $publish_date = isset($publish_dates[$index]) ? $publish_dates[$index] : null;
-                $article_title = $this->generate_title($file['name'], $content);
-                $post_data = array(
-                    'post_title' => $article_title,
-                    'post_name' => sanitize_title($article_title),
-                    'post_content' => $processed_content,
-                    'post_status' => $this->get_post_status($publish_date),
-                    'post_author' => $settings['default_author'],
-                    'post_category' => array($settings['default_category']),
-                );
-
-                if ($publish_date instanceof DateTime) {
-                    $post_data['post_date'] = $publish_date->format('Y-m-d H:i:s');
-                    $post_data['post_date_gmt'] = get_gmt_from_date($post_data['post_date']);
-                }
-
-                $post_id = wp_insert_post(wp_slash($post_data), true);
-                if (is_wp_error($post_id)) {
-                    throw new Exception($post_id->get_error_message());
-                }
-
-                $this->set_seo_metadata($post_id, $article_title, $processed_content);
-
-                $this->log_import_history($post_id, $file['name'], $settings);
-                $results[] = array(
-                    'file' => $file['name'],
-                    'post_id' => $post_id,
-                    'status' => get_post_status($post_id),
-                    'publish_date' => $publish_date instanceof DateTime ? $publish_date->format('Y-m-d H:i:s') : __('immediate', 'word-to-article-importer'),
-                );
-            } catch (Throwable $e) {
-                $this->error_handler->log_error(WTAI_Error_Handler::ERR_UNKNOWN_ERROR, array(
-                    'file' => $file['name'],
-                    'error' => $e->getMessage(),
-                ));
-                $errors[] = array(
-                    'file' => $file['name'],
-                    'error' => $e->getMessage(),
-                    'error_code' => WTAI_Error_Handler::ERR_UNKNOWN_ERROR,
-                );
-            }
-        }
-
-        wp_send_json_success(array(
-            'results' => $results,
-            'errors' => $errors,
-            'total' => count($files),
-            'successful' => count($results),
-            'failed' => count($errors),
-        ));
-    }
-
-    /**
-     * Populate SEO metadata. Yoast gets the focus keyphrase as well as title/description.
-     */
-    private function set_seo_metadata($post_id, $title, $content) {
-        $title = wp_strip_all_tags($title);
-        $description = $this->build_meta_description($content);
-        $focus_keyphrase = $this->build_focus_keyphrase($title, $content);
-
-        if (defined('WPSEO_VERSION') || class_exists('WPSEO_Options')) {
-            update_post_meta($post_id, '_yoast_wpseo_title', $title);
-            update_post_meta($post_id, '_yoast_wpseo_metadesc', $description);
-            update_post_meta($post_id, '_yoast_wpseo_focuskw', $focus_keyphrase);
-        } elseif (defined('RANK_MATH_VERSION') || class_exists('RankMath')) {
-            update_post_meta($post_id, 'rank_math_title', $title);
-            update_post_meta($post_id, 'rank_math_description', $description);
-        } elseif (defined('AIOSEO_VERSION') || class_exists('AIOSEO\\Plugin\\AIOSEO')) {
-            update_post_meta($post_id, '_aioseo_title', $title);
-            update_post_meta($post_id, '_aioseo_description', $description);
-        } elseif (defined('SEOPRESS_VERSION')) {
-            update_post_meta($post_id, '_seopress_titles_title', $title);
-            update_post_meta($post_id, '_seopress_titles_desc', $description);
-        }
-    }
-
-    /**
-     * Select a deterministic focus keyphrase from the title, headings, and body.
-     */
-    private function build_focus_keyphrase($title, $content) {
-        $stop_words = array_flip(array(
-            'a','an','and','are','as','at','be','been','being','but','by','can','could','did','do','does','for','from',
-            'had','has','have','how','if','in','into','is','it','its','may','more','most','of','on','or','should','so',
-            'that','the','their','there','these','they','this','those','to','was','were','what','when','where','which',
-            'who','why','will','with','would','you','your'
-        ));
-
-        $normalize = function ($text) {
-            $text = html_entity_decode(wp_strip_all_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-            $text = function_exists('mb_strtolower') ? mb_strtolower($text, 'UTF-8') : strtolower($text);
-            return preg_replace('/[^\p{L}\p{N}]+/u', ' ', $text);
-        };
-
-        $tokenize = function ($text) use ($normalize, $stop_words) {
-            $words = preg_split('/\s+/u', trim($normalize($text)), -1, PREG_SPLIT_NO_EMPTY);
-            return array_values(array_filter($words, function ($word) use ($stop_words) {
-                return !isset($stop_words[$word]);
-            }));
-        };
-
-        $title_words = $tokenize($title);
-        if (!$title_words) {
-            return '';
-        }
-
-        $body_text = $normalize($content);
-        $body_words = preg_split('/\s+/u', trim($body_text), -1, PREG_SPLIT_NO_EMPTY);
-        $frequencies = array_count_values($body_words);
-
-        $heading_text = '';
-        if (preg_match_all('/<h[1-6]\b[^>]*>(.*?)<\/h[1-6]>/is', $content, $matches)) {
-            $heading_text = implode(' ', $matches[1]);
-        }
-        $heading_text = $normalize($heading_text);
-
-        $candidates = array();
-        $count = count($title_words);
-
-        // Generate only title-derived phrases. This prevents arbitrary body text
-        // from becoming the focus keyphrase and keeps the result topic-focused.
-        for ($i = 0; $i < $count; $i++) {
-            for ($size = 1; $size <= 4 && $i + $size <= $count; $size++) {
-                $phrase_words = array_slice($title_words, $i, $size);
-                $phrase = implode(' ', $phrase_words);
-                $score = 0;
-
-                // Prefer useful 2-3 word phrases; allow 1 or 4 when clearly stronger.
-                $score += $size === 2 ? 24 : ($size === 3 ? 22 : ($size === 4 ? 10 : 4));
-
-                foreach ($phrase_words as $word) {
-                    $score += min(8, isset($frequencies[$word]) ? $frequencies[$word] : 0);
-                }
-
-                // Strongest signal: the phrase itself occurs in the article title.
-                $normalized_title = ' ' . implode(' ', $title_words) . ' ';
-                if (strpos($normalized_title, ' ' . $phrase . ' ') !== false) {
-                    $score += 30;
-                }
-
-                // Headings are stronger topical signals than ordinary body text.
-                if ($heading_text !== '' && strpos(' ' . $heading_text . ' ', ' ' . $phrase . ' ') !== false) {
-                    $score += 15;
-                }
-
-                // Avoid weak phrases made only from numbers.
-                if (preg_match('/^[\p{N}\s]+$/u', $phrase)) {
-                    $score -= 20;
-                }
-
-                // Prefer a phrase with a substantive word over a generic short phrase.
-                if ($size === 1 && (function_exists('mb_strlen') ? mb_strlen($phrase, 'UTF-8') < 4 : strlen($phrase) < 4)) {
-                    $score -= 6;
-                }
-
-                if (!isset($candidates[$phrase]) || $score > $candidates[$phrase]) {
-                    $candidates[$phrase] = $score;
-                }
-            }
-        }
-
-        arsort($candidates, SORT_NUMERIC);
-        return (string) key($candidates);
-    }
-
-    /**
-     * Build a maximum-142-character description without cutting a word in half.
-     */
-    private function build_meta_description($content) {
-        $paragraphs = array();
-        if (preg_match_all('/<p\\b[^>]*>(.*?)<\\/p>/is', $content, $matches)) {
-            foreach ($matches[1] as $paragraph) {
-                $paragraph = trim(preg_replace('/\\s+/u', ' ', wp_strip_all_tags($paragraph)));
-                if ($paragraph !== '') {
-                    $paragraphs[] = $paragraph;
-                }
-            }
-        }
-
-        $text = isset($paragraphs[0]) ? $paragraphs[0] : trim(preg_replace('/\\s+/u', ' ', wp_strip_all_tags($content)));
-        $length = preg_match_all('/./us', $text, $chars);
-        if ($length === false || $length <= 142) {
-            return $text;
-        }
-
-        $chars = $chars[0];
-        $candidate = implode('', array_slice($chars, 0, 139));
-        $candidate = preg_replace('/\\s+\\S*$/u', '', $candidate);
-        return rtrim($candidate) . '...';
-    }
-
-    /**
-     * Sanitize imported HTML without flattening semantic formatting.
-     *
-     * WordPress KSES normally permits these elements, but explicitly defining
-     * the allowed document structure prevents an importer/filter mismatch
-     * from turning headings and lists into plain paragraphs.
-     */
-    private function sanitize_imported_html($html) {
-        $allowed = wp_kses_allowed_html('post');
-
-        foreach (array('h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'ul', 'ol', 'li', 'strong', 'em', 'u', 's', 'br', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td') as $tag) {
-            if (!isset($allowed[$tag])) {
-                $allowed[$tag] = array();
-            }
-        }
-
-        return wp_kses($html, $allowed);
-    }
-
-    private function calculate_publish_dates($settings, $count) {
-        if ($settings['publish_schedule'] === 'immediate' || $count < 1) {
-            return array_fill(0, $count, null);
-        }
+        $valid = $this->validate_docx_upload($files[0]);
+        if (is_wp_error($valid)) wp_send_json_error(array('message' => $valid->get_error_message()), 400);
 
         try {
-            $timezone = wp_timezone();
-            $start = $this->parse_schedule_date($settings['schedule_start_date'], $timezone);
-            if (!$start) {
-                throw new Exception(__('Please select a valid start date.', 'word-to-article-importer'));
-            }
-            $start->setTime(9, 0, 0);
+            $result = (new WTAI_Importer($this->error_handler))->import($files[0], $settings, $dates[$index]);
+            wp_send_json_success($result);
+        } catch (Throwable $error) {
+            $this->error_handler->log_error(WTAI_Error_Handler::ERR_UNKNOWN_ERROR, array('file' => $files[0]['name'], 'error' => $error->getMessage()));
+            wp_send_json_error(array('message' => $error->getMessage()), 500);
+        }
+    }
 
-            $interval = $this->get_interval($settings['schedule_interval']);
-            $end = null;
-            if ($settings['publish_schedule'] === 'custom_range') {
-                $end = $this->parse_schedule_date($settings['schedule_end_date'], $timezone);
-                if (!$end) {
-                    throw new Exception(__('Please select a valid end date.', 'word-to-article-importer'));
+    public function ajax_pixabay() {
+        $this->authorize_ajax();
+        $operation = isset($_POST['operation']) && is_string($_POST['operation']) ? $_POST['operation'] : '';
+        if ($operation === 'status') $result = WTAI_Pixabay::status();
+        elseif ($operation === 'remove_key') $result = WTAI_Pixabay::remove_key();
+        elseif ($operation === 'save_key') {
+            $key = isset($_POST['key']) && is_string($_POST['key']) ? trim(wp_unslash($_POST['key'])) : '';
+            $result = WTAI_Pixabay::save_key($key);
+        } else $result = new WP_Error('wtai_pixabay_operation', __('Unknown Pixabay operation.', 'wolf-forge-article-generator'));
+        if (is_wp_error($result)) wp_send_json_error(array('message' => $result->get_error_message()), 400);
+        wp_send_json_success($result);
+    }
+
+    public function ajax_google_drive() {
+        $this->authorize_ajax();
+        $input = function ($key) { return isset($_POST[$key]) && is_string($_POST[$key]) ? wp_unslash($_POST[$key]) : ''; };
+        $operation = $input('operation');
+        $result = null;
+        if ($operation === 'save_key') $result = WTAI_Google_Drive::save_key(trim($input('key')));
+        elseif ($operation === 'remove_key') $result = WTAI_Google_Drive::remove_key();
+        elseif ($operation === 'status') $result = WTAI_Google_Drive::status();
+        elseif ($operation === 'list') $result = WTAI_Google_Drive::files($input('folder_url'), $input('page_token'));
+        elseif ($operation === 'import') {
+            $settings = WTAI_Settings::for_import(isset($_POST['settings']) ? $_POST['settings'] : array());
+            $count = (int) $input('document_count');
+            $index = (int) $input('document_index');
+            $dates = WTAI_Scheduler::calculate($settings, $count);
+            if (is_wp_error($dates)) $result = $dates;
+            elseif ($index < 0 || $index >= $count) $result = new WP_Error('wtai_drive_position', __('Invalid document position.', 'wolf-forge-article-generator'));
+            else {
+                $file = WTAI_Google_Drive::download($input('file_id'), $input('resource_key'));
+                if (is_wp_error($file)) $result = $file;
+                else {
+                    try {
+                        $valid = $this->validate_docx_upload($file, false);
+                        $result = is_wp_error($valid) ? $valid : (new WTAI_Importer($this->error_handler))->import($file, $settings, $dates[$index]);
+                    } catch (Throwable $error) {
+                        $result = new WP_Error('wtai_drive_import', $error->getMessage());
+                    } finally {
+                        wp_delete_file($file['tmp_name']);
+                    }
                 }
-                $end->setTime(23, 59, 59);
-                if ($end < $start) {
-                    throw new Exception(__('End date must not be before the start date.', 'word-to-article-importer'));
-                }
             }
-
-            $dates = array();
-            $current = clone $start;
-            $slots = $this->count_schedule_slots($start, $end, $settings['schedule_interval']);
-
-            if ($end && $count > $slots) {
-                throw new Exception(sprintf(
-                    __('The selected date range contains %1$d %2$s publishing slot%3$s, but %4$d documents were selected. Extend the range or use a longer interval.', 'word-to-article-importer'),
-                    $slots,
-                    $settings['schedule_interval'] === 'day' ? __('daily', 'word-to-article-importer') : ($settings['schedule_interval'] === 'week' ? __('weekly', 'word-to-article-importer') : __('monthly', 'word-to-article-importer')),
-                    $slots === 1 ? '' : 's',
-                    $count
-                ));
-            }
-
-            for ($i = 0; $i < $count; $i++) {
-                $dates[] = clone $current;
-                $current->add($interval);
-            }
-
-            return $dates;
-        } catch (Throwable $e) {
-            $this->error_handler->log_error(WTAI_Error_Handler::ERR_SCHEDULE_CALCULATION_FAILED, array('error' => $e->getMessage()));
-            return new WP_Error('wtai_schedule_error', $e->getMessage());
-        }
-    }
-
-    private function parse_schedule_date($value, DateTimeZone $timezone) {
-        $value = sanitize_text_field($value);
-        if ($value === '') {
-            return null;
-        }
-        $date = DateTime::createFromFormat('!Y-m-d', $value, $timezone);
-        return ($date && $date->format('Y-m-d') === $value) ? $date : null;
-    }
-
-    private function count_schedule_slots(DateTime $start, DateTime $end, $interval_type) {
-        if (!$end) {
-            return PHP_INT_MAX;
-        }
-
-        $count = 0;
-        $current = clone $start;
-        $interval = $this->get_interval($interval_type);
-        while ($current <= $end) {
-            $count++;
-            $current->add($interval);
-            if ($count > 100000) {
-                break;
-            }
-        }
-        return $count;
-    }
-
-    private function get_interval($interval_type) {
-        switch ($interval_type) {
-            case 'week': return new DateInterval('P1W');
-            case 'month': return new DateInterval('P1M');
-            default: return new DateInterval('P1D');
-        }
-    }
-
-    private function get_post_status($publish_date) {
-        if ($publish_date instanceof DateTime) {
-            $now = new DateTime('now', wp_timezone());
-            return $publish_date > $now ? 'future' : 'publish';
-        }
-        return 'publish';
-    }
-
-    private function generate_title($filename, $content) {
-        $title = pathinfo($filename, PATHINFO_FILENAME);
-        $title = preg_replace('/[\s_-]+/u', ' ', $title);
-        $title = trim($title);
-
-        if ($title === '' || preg_match('/^\d+$/', $title)) {
-            if (preg_match('/<h[1-6][^>]*>(.*?)<\/h[1-6]>/is', $content, $matches)) {
-                $title = wp_strip_all_tags($matches[1]);
-            }
-        }
-
-        return wp_strip_all_tags($title ?: __('Imported Article', 'word-to-article-importer'));
-    }
-
-    private function log_import_history($post_id, $filename, $settings) {
-        global $wpdb;
-        $wpdb->insert(
-            $wpdb->prefix . 'wtai_import_history',
-            array(
-                'post_id' => $post_id,
-                'original_filename' => $filename,
-                'settings' => wp_json_encode($settings),
-                'status' => 'completed',
-            ),
-            array('%d', '%s', '%s', '%s')
-        );
+        } else $result = new WP_Error('wtai_drive_operation', __('Unknown Google Drive operation.', 'wolf-forge-article-generator'));
+        if (is_wp_error($result)) wp_send_json_error(array('message' => $result->get_error_message(), 'code' => $result->get_error_code(), 'drive_status' => WTAI_Google_Drive::status()), $result->get_error_code() === 'wtai_drive_quota' ? 429 : 400);
+        if ($operation === 'import') $result['drive_status'] = WTAI_Google_Drive::status();
+        wp_send_json_success($result);
     }
 
     public function ajax_get_media_images() {
         check_ajax_referer('wtai_ajax_nonce', 'nonce');
         if (!current_user_can('upload_files')) {
-            wp_send_json_error(array('message' => __('Permission denied.', 'word-to-article-importer')), 403);
+            wp_send_json_error(array('message' => __('Permission denied.', 'wolf-forge-article-generator')), 403);
         }
 
         $search = isset($_GET['search']) ? sanitize_text_field(wp_unslash($_GET['search'])) : '';
@@ -661,56 +372,129 @@ class Word_To_Article_Importer {
         wp_send_json_success($data);
     }
 
-    public function ajax_get_import_history() {
-        check_ajax_referer('wtai_ajax_nonce', 'nonce');
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error(array('message' => __('Permission denied.', 'word-to-article-importer')), 403);
-        }
+    private function authorize_media() {
+        $this->authorize_ajax();
+        if (!current_user_can('upload_files')) wp_send_json_error(array('message' => __('Media Library access is required.', 'wolf-forge-article-generator')), 403);
+    }
 
+    public function ajax_refresh_media_index() {
+        $this->authorize_media();
+        WTAI_Media_Index::invalidate();
+        $index = WTAI_Media_Index::get();
+        wp_send_json_success(array('count' => $index['count']));
+    }
+
+    public function ajax_preview_images() {
+        $this->authorize_media();
+        $content = isset($_POST['content']) && is_string($_POST['content']) ? wp_unslash($_POST['content']) : '';
+        if (strlen($content) > 200000 || trim(wp_strip_all_tags($content)) === '') {
+            wp_send_json_error(array('message' => __('Paste article text or HTML, up to 200 KB.', 'wolf-forge-article-generator')), 400);
+        }
+        $title = isset($_POST['title']) && is_string($_POST['title']) ? sanitize_text_field(wp_unslash($_POST['title'])) : '';
+        $content = wp_kses_post(wpautop($content));
+        $settings = WTAI_Settings::for_import(isset($_POST['settings']) ? $_POST['settings'] : array());
+        $matcher = new WTAI_Image_Matcher($this->error_handler);
+        $html = !empty($settings['auto_insert_images']) ? $matcher->insert_images($content, $settings, $title) : $content;
+        $report = $matcher->get_report();
+        if (!$report) $report = array('requested' => $settings['max_images_per_post'], 'inserted' => 0, 'placements' => array(), 'message' => __('Automatic image insertion is disabled.', 'wolf-forge-article-generator'));
+        wp_send_json_success(array('content' => wp_kses_post(WTAI_GBP_Photos::preview($html)), 'report' => $report));
+    }
+
+    public function ajax_google_photos() {
+        $this->authorize_ajax();
+        $operation = isset($_POST['operation']) && is_string($_POST['operation']) ? $_POST['operation'] : 'check';
+        if ($operation === 'save_key' || $operation === 'remove_key') {
+            if (defined('WTAI_GOOGLE_PLACES_API_KEY')) wp_send_json_error(array('message' => __('The Google API key is managed in wp-config.php.', 'wolf-forge-article-generator')), 400);
+            if ($operation === 'remove_key') {
+                delete_option('wtai_google_places_api_key');
+                if (WTAI_GBP_Photos::has_key()) wp_send_json_error(array('message' => __('Google API key could not be removed. Please retry.', 'wolf-forge-article-generator')), 500);
+            }
+            else {
+                $key = isset($_POST['key']) && is_string($_POST['key']) ? trim(wp_unslash($_POST['key'])) : '';
+                if (!preg_match('/^[A-Za-z0-9_-]{20,200}$/D', $key)) wp_send_json_error(array('message' => __('Enter a valid Google Places API key.', 'wolf-forge-article-generator')), 400);
+                update_option('wtai_google_places_api_key', $key, false);
+                if (get_option('wtai_google_places_api_key') !== $key) wp_send_json_error(array('message' => __('Google API key could not be saved. Please retry.', 'wolf-forge-article-generator')), 500);
+            }
+            wp_send_json_success(array('message' => WTAI_GBP_Photos::has_key() ? __('Google API key saved.', 'wolf-forge-article-generator') : __('Google API key removed. Live Google photos will no longer load.', 'wolf-forge-article-generator')));
+        }
+        try {
+            $settings = WTAI_Settings::read();
+            $profile = WTAI_GBP_Photos::profile($settings['gbp_profile_url']);
+            wp_send_json_success(array('message' => sprintf(__('%s: %d photos available from Google. Confirm this is the intended business.', 'wolf-forge-article-generator'), $profile['displayName']['text'] ?? $profile['id'], count($profile['photos'])), 'content' => count($profile['photos']) ? WTAI_GBP_Photos::shortcode(array('place' => $profile['id'], 'slot' => 0)) : ''));
+        } catch (Throwable $error) {
+            wp_send_json_error(array('message' => $error->getMessage()), 400);
+        }
+    }
+
+    public function ajax_get_import_history() {
+        $this->authorize_ajax();
+        wp_send_json_success(array('history' => $this->get_import_history()));
+    }
+
+    public function get_import_history() {
+        if (!current_user_can('manage_options')) return array();
         global $wpdb;
         $table = $wpdb->prefix . 'wtai_import_history';
-        $history = $wpdb->get_results("SELECT id, post_id, original_filename, import_date, status FROM {$table} ORDER BY import_date DESC LIMIT 10", ARRAY_A);
-        wp_send_json_success(array('history' => $history ? $history : array()));
+        $history = $wpdb->get_results("SELECT id, post_id, original_filename, import_date, status FROM {$table} ORDER BY import_date DESC, id DESC LIMIT 10", ARRAY_A) ?: array();
+        foreach ($history as &$item) {
+            $post = get_post($item['post_id']);
+            $readable = $post && current_user_can('read_post', $post->ID);
+            $available = $readable && !in_array($post->post_status, array('trash', 'auto-draft'), true);
+            $item['post_title'] = $readable ? (get_the_title($post) ?: __('Untitled', 'wolf-forge-article-generator')) : '';
+            $item['post_status'] = $post ? $post->post_status : 'deleted';
+            $item['view_url'] = $available ? (in_array($post->post_status, array('draft', 'pending', 'future'), true) ? get_preview_post_link($post) : get_permalink($post)) : '';
+            $item['edit_url'] = $available ? get_edit_post_link($post->ID, 'raw') : '';
+            $item['can_trash'] = $available && $post->post_type === 'post' && current_user_can('delete_post', $post->ID) && (!defined('EMPTY_TRASH_DAYS') || (int) EMPTY_TRASH_DAYS > 0);
+        }
+        unset($item);
+        return $history ?: array();
+    }
+
+    public function trash_import($post_id) {
+        if (!current_user_can('manage_options') || !current_user_can('delete_post', $post_id)) return new WP_Error('wtai_import_permission', __('Permission denied.', 'wolf-forge-article-generator'));
+        if (defined('EMPTY_TRASH_DAYS') && (int) EMPTY_TRASH_DAYS === 0) return new WP_Error('wtai_trash_disabled', __('WordPress Trash is disabled. No post was deleted.', 'wolf-forge-article-generator'));
+        global $wpdb;
+        $imported = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$wpdb->prefix}wtai_import_history WHERE post_id = %d LIMIT 1", $post_id));
+        if (!$imported || get_post_type($post_id) !== 'post' || get_post_status($post_id) === 'trash') return new WP_Error('wtai_invalid_import', __('This imported post is unavailable. Refresh the history and retry.', 'wolf-forge-article-generator'));
+        if (!wp_trash_post($post_id)) return new WP_Error('wtai_import_trash_failed', __('The post could not be moved to Trash.', 'wolf-forge-article-generator'));
+        return true;
+    }
+
+    public function ajax_trash_import() {
+        $this->authorize_ajax();
+        $post_id = isset($_POST['post_id']) && is_scalar($_POST['post_id']) ? absint($_POST['post_id']) : 0;
+        $result = $this->trash_import($post_id);
+        if (is_wp_error($result)) wp_send_json_error(array('message' => $result->get_error_message()), 400);
+        wp_send_json_success(array('message' => __('Post moved to Trash. You can restore it from Posts > Trash.', 'wolf-forge-article-generator')));
     }
 
     public function ajax_clear_import_history() {
-        check_ajax_referer('wtai_ajax_nonce', 'nonce');
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error(array('message' => __('Permission denied.', 'word-to-article-importer')), 403);
-        }
+        $this->authorize_ajax();
         global $wpdb;
-        $wpdb->query("TRUNCATE TABLE {$wpdb->prefix}wtai_import_history");
-        wp_send_json_success(array('message' => __('Import history cleared.', 'word-to-article-importer')));
+        if ($wpdb->query("TRUNCATE TABLE {$wpdb->prefix}wtai_import_history") === false) {
+            wp_send_json_error(array('message' => __('Import history could not be cleared.', 'wolf-forge-article-generator')), 500);
+        }
+        wp_send_json_success(array('message' => __('Import history cleared.', 'wolf-forge-article-generator')));
     }
 
     public function ajax_reset_settings() {
-        check_ajax_referer('wtai_ajax_nonce', 'nonce');
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error(array('message' => __('Permission denied.', 'word-to-article-importer')), 403);
-        }
-        foreach ($this->get_defaults() as $key => $value) {
-            update_option('wtai_' . $key, $value);
-        }
-        wp_send_json_success(array('message' => __('Settings reset to defaults.', 'word-to-article-importer')));
+        $this->authorize_ajax();
+        $settings = WTAI_Settings::save(WTAI_Settings::defaults());
+        if (is_wp_error($settings)) wp_send_json_error(array('message' => $settings->get_error_message()), 500);
+        wp_send_json_success(array('settings' => $settings));
     }
 
     public function ajax_get_error_stats() {
-        check_ajax_referer('wtai_ajax_nonce', 'nonce');
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error(array('message' => __('Permission denied.', 'word-to-article-importer')), 403);
-        }
+        $this->authorize_ajax();
         wp_send_json_success($this->error_handler->get_error_stats());
     }
 
     public function ajax_clear_error_logs() {
-        check_ajax_referer('wtai_ajax_nonce', 'nonce');
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error(array('message' => __('Permission denied.', 'word-to-article-importer')), 403);
-        }
+        $this->authorize_ajax();
         if ($this->error_handler->clear_error_logs()) {
-            wp_send_json_success(array('message' => __('Error logs cleared.', 'word-to-article-importer')));
+            wp_send_json_success(array('message' => __('Error logs cleared.', 'wolf-forge-article-generator')));
         }
-        wp_send_json_error(array('message' => __('Failed to clear error logs.', 'word-to-article-importer')));
+        wp_send_json_error(array('message' => __('Failed to clear error logs.', 'wolf-forge-article-generator')));
     }
 }
 
