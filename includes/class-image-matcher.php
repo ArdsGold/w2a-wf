@@ -10,6 +10,44 @@ class WTAI_Image_Matcher {
     public function __construct($error_handler = null) { $this->error_handler = $error_handler; }
     public function get_report() { return $this->report; }
 
+    /** Transient admin markup only: Google URLs and photo metadata never enter post storage. */
+    public function result_thumbnails($content) {
+        if (!class_exists('DOMDocument')) return '';
+        try {
+            list($document, $root) = $this->fragment($content);
+            $items = '';
+            $label = __('Open full image in a new tab', 'wolf-forge-article-generator');
+            foreach ($root->getElementsByTagName('figure') as $figure) {
+                if (!preg_match('/(?:^|\s)wtai-inserted-image(?:\s|$)/', $figure->getAttribute('class'))) continue;
+                $html = '';
+                $image = $figure->getElementsByTagName('img')->item(0);
+                if ($image && preg_match('/\bwp-image-(\d+)\b/', $image->getAttribute('class'), $match)) {
+                    $id = (int) $match[1];
+                    $url = wp_get_attachment_image_url($id, 'full');
+                    $thumbnail = wp_get_attachment_image($id, 'thumbnail', false, array('loading' => 'lazy', 'class' => 'wtai-result-thumbnail'));
+                    if ($url && $thumbnail) $html = '<a href="' . esc_url($url) . '" target="_blank" rel="noopener" title="' . esc_attr($label) . '" aria-label="' . esc_attr($label) . '">' . $thumbnail . '</a>';
+                } elseif (preg_match('/\[wtai_gbp_photo place="([A-Za-z0-9_-]{10,200})" slot="([0-9])"\]/', $figure->textContent, $match)) {
+                    $google = WTAI_GBP_Photos::shortcode(array('place' => $match[1], 'slot' => $match[2]));
+                    if ($google !== '') {
+                        list($google_document, $google_root) = $this->fragment($google);
+                        $photo = $google_root->getElementsByTagName('img')->item(0);
+                        if ($photo && $photo->parentNode instanceof DOMElement && $photo->parentNode->tagName === 'a') {
+                            $photo->parentNode->setAttribute('href', $photo->getAttribute('src'));
+                            $photo->parentNode->setAttribute('title', $label);
+                            $photo->parentNode->setAttribute('aria-label', $label);
+                            foreach ($google_root->childNodes as $node) $html .= $google_document->saveHTML($node);
+                        }
+                    }
+                }
+                if ($html === '') $html = '<span class="wtai-result-thumbnail-unavailable">' . esc_html__('Image unavailable', 'wolf-forge-article-generator') . '</span>';
+                $items .= '<li>' . $html . '</li>';
+            }
+            return $items === '' ? '' : wp_kses_post('<ul class="wtai-result-images" aria-label="' . esc_attr__('Inserted images', 'wolf-forge-article-generator') . '">' . $items . '</ul>');
+        } catch (Throwable $error) {
+            return ''; // Preview failures must not change the import outcome.
+        }
+    }
+
     public function insert_images($content, $settings, $title = '', $allow_downloads = false) {
         $requested = max(0, (int) ($settings['max_images_per_post'] ?? 3));
         $this->report = array('requested' => $requested, 'inserted' => 0, 'placements' => array(), 'message' => '');
@@ -92,7 +130,14 @@ class WTAI_Image_Matcher {
             $plan = $this->best_plan($anchors, $ranked, $capacity, $total);
             $web_message = '';
             if ($allow_downloads && !empty($settings['pixabay_fallback']) && $source !== 'gbp' && count($plan) < $capacity) {
-                $web_message = $this->fill_from_pixabay($anchors, $ranked, $plan, $capacity, $total, $terms, $index, $excluded);
+                $local_images = $ranked;
+                $local_plan = $plan;
+                try { $web_message = $this->fill_from_pixabay($anchors, $ranked, $plan, $capacity, $total, $terms, $index, $excluded); }
+                catch (Throwable $error) {
+                    $ranked = $local_images;
+                    $plan = $local_plan;
+                    $web_message = __('Pixabay fallback failed. Available local images were preserved.', 'wolf-forge-article-generator');
+                }
             }
             $count = count($plan);
             foreach ($plan as $slot => $placement) {
@@ -114,10 +159,11 @@ class WTAI_Image_Matcher {
                     $link = $document->createElement('a', 'Pixabay');
                     $link->setAttribute('href', $credit['page']);
                     $link->setAttribute('rel', 'noopener');
-                    $credit_node = $document->createElement('figcaption');
+                    $credit_node = $caption !== '' ? $caption_node : $document->createElement('figcaption');
+                    if ($caption !== '') $credit_node->appendChild($document->createTextNode(' '));
                     $credit_node->appendChild($document->createTextNode(__('Source: ', 'wolf-forge-article-generator')));
                     $credit_node->appendChild($link);
-                    $figure->appendChild($credit_node);
+                    if ($caption === '') $figure->appendChild($credit_node);
                 }
                 $root->insertBefore($figure, $anchors[$position]['node']->nextSibling);
                 $matched = array_intersect_key($anchors[$position]['vector'], $image['vector']);
@@ -198,11 +244,12 @@ class WTAI_Image_Matcher {
             if (count($trial) === $maximum) break;
         }
         $downloaded = array();
+        $attempts = 0;
         if (count($trial) > count($plan)) {
             foreach ($trial as $placement) {
                 $candidate = $images[$placement['image']];
                 if (($candidate['source'] ?? '') !== 'pixabay') continue;
-                if (count($downloaded) >= WTAI_Pixabay::MAX_DOWNLOADS) break;
+                if ($attempts++ >= WTAI_Pixabay::MAX_DOWNLOADS) break;
                 $id = WTAI_Pixabay::download($candidate['photo']);
                 if (is_wp_error($id)) { $message = $id->get_error_message(); continue; }
                 if (isset($excluded[$id])) continue;

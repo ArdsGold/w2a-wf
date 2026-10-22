@@ -437,7 +437,7 @@ async function main() {
     context.setTimeout = originalSetTimeout;
     context.clearTimeout = originalClearTimeout;
     const resultCases = [
-        { images: { inserted: 1, requested: 3 }, links: { inserted: 5, requested: 5 } },
+        { images: { inserted: 1, requested: 3 }, links: { inserted: 5, requested: 5 }, image_previews: '<ul class="wtai-result-images"><li>Image preview</li></ul>' },
         { images: { inserted: 3, requested: 3 }, links: { inserted: 3, requested: 5 } },
         { images: { inserted: 0, requested: 3 }, links: { inserted: 4, requested: 5 } },
         { images: { inserted: 3, requested: 3 }, links: { inserted: 5, requested: 5 } },
@@ -452,6 +452,20 @@ async function main() {
         'wtai-result-item warning', 'wtai-result-item warning', 'wtai-result-item warning',
         'wtai-result-item success', 'wtai-result-item success', 'wtai-result-item success', 'wtai-result-item error',
     ], 'Short image/link counts are orange warnings; complete, disabled, and legacy reports remain green, and failures remain red.');
-    console.log('PASS: admin queue, persistence, history, Google controls, calendar helpers, and preview races.');
+    assert.equal(createdElements.filter(item => item.class === 'wtai-result-image-previews').length, 1, 'Only articles with thumbnail markup receive an image preview row.');
+    assert.equal(createdElements.find(item => item.class === 'wtai-result-image-previews').html, resultCases[0].image_previews, 'Result cards display the server-generated thumbnails.');
+    createdElements.length = 0;
+    subject.request = async () => ({ success: true, data: { mismatch: false, installed: 'r4.0.0', repository: 'r4.0.0' } });
+    await subject.checkVersion();
+    assert.equal(createdElements.length, 0, 'Matching versions add no notice content.');
+    subject.request = async () => ({ success: true, data: { mismatch: true, installed: 'r4.0.0', repository: 'r4.1.0' } });
+    await subject.checkVersion();
+    assert(createdElements.some(item => item.text?.includes('running r4.0.0; GitHub (main) r4.1.0')), 'A mismatch identifies both compared versions.');
+    assert(createdElements.some(item => item.href === 'https://github.com/ArdsGold/w2a-wf' && item.target === '_blank'), 'The mismatch links to the fixed GitHub repository.');
+    createdElements.length = 0;
+    subject.request = async () => { throw new Error('Version check unavailable'); };
+    await subject.checkVersion();
+    assert.equal(createdElements.length, 0, 'Connection failures add no warning or error notice.');
+    console.log('PASS: admin queue, persistence, history, Google controls, calendar helpers, preview races, and mismatch-only version notices.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

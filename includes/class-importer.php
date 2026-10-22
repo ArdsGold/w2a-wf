@@ -148,6 +148,7 @@ class WTAI_Importer {
             'status' => get_post_status($post_id),
             'publish_date' => get_post_field('post_date', $post_id),
             'existing' => $existing,
+            'image_previews' => (new WTAI_Image_Matcher())->result_thumbnails((string) get_post_field('post_content', $post_id)),
         );
         if ($history === false) $result['warning'] = __('The article was saved, but its history status could not be updated.', 'wolf-forge-article-generator');
         return $result;

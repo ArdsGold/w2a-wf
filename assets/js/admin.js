@@ -11,6 +11,7 @@
             this.savedSettings = JSON.stringify(this.settingsFields());
             this.bindEvents();
             this.loadImportHistory();
+            if ($('#wtai-version-notice').length) this.checkVersion();
             if ($('#wtai-drive-status').length) this.driveCredentials('status');
             this.showTab(new URL(window.location.href).searchParams.get('tab') || 'generate');
         },
@@ -375,6 +376,38 @@
             $('#wtai-drive-status').text([prefix, source, current.notice].filter(Boolean).join(' '));
         },
 
+        async checkVersion() {
+            const $notice = $('#wtai-version-notice').empty().prop('hidden', true);
+            try {
+                const response = await this.request(this.importData([], 'wtai_check_version', 0));
+                if (!response.success || !response.data?.mismatch) return;
+                const status = response.data;
+                const $message = $('<p>', { text: 'Wolf Forge version mismatch: running ' + status.installed + '; GitHub (main) ' + status.repository + '. ' });
+                $('<a>', { href: 'https://github.com/ArdsGold/w2a-wf', text: 'View GitHub repository', target: '_blank', rel: 'noopener' }).appendTo($message);
+                $notice.addClass('notice notice-warning inline').append($message).prop('hidden', false);
+            } catch (error) {
+                // An unavailable version check must not interrupt generation or display a false warning.
+            }
+        },
+
+        async pixabayCredentials(operation) {
+            if (this.importing) return;
+            $('#wtai-pixabay-save-key, #wtai-pixabay-remove-key').prop('disabled', true);
+            try {
+                const data = this.importData([], 'wtai_pixabay', 0);
+                data.append('operation', operation);
+                if (operation === 'save_key') data.append('key', $('#wtai-pixabay-api-key').val());
+                const response = await this.request(data);
+                if (!response.success) throw new Error(response.data?.message || 'Pixabay credentials could not be updated.');
+                $('#wtai-pixabay-key-status').text(response.data.message);
+                $('#wtai-pixabay-api-key').val('');
+            } catch (error) {
+                $('#wtai-pixabay-key-status').text(error.message);
+            } finally {
+                $('#wtai-pixabay-save-key, #wtai-pixabay-remove-key').prop('disabled', Boolean(this.importing));
+            }
+        },
+
         async driveCredentials(operation) {
             const revision = this.driveStatusRevision = (this.driveStatusRevision || 0) + 1;
             if (operation !== 'status') this.driveListVersion = (this.driveListVersion || 0) + 1;
@@ -590,6 +623,7 @@
                     $('<h4>', { text: result.file }).appendTo($item);
                     $('<p>', { text: 'Post ID: ' + result.post_id + (result.existing ? ' (existing article reused)' : '') }).appendTo($item);
                     if (result.images) $('<p>', { text: 'Images inserted: ' + result.images.inserted + ' of ' + result.images.requested + (result.images.message ? '. ' + result.images.message : '') }).appendTo($item);
+                    if (result.image_previews) $('<div>', { class: 'wtai-result-image-previews', html: result.image_previews }).appendTo($item);
                     if (result.links) $('<p>', { text: 'Internal links inserted: ' + result.links.inserted + ' of ' + result.links.requested + (result.links.message ? '. ' + result.links.message : '') }).appendTo($item);
                     if (result.warning) $('<p>', { text: result.warning }).appendTo($item);
                     const $meta = $('<div>', { class: 'wtai-result-meta' });

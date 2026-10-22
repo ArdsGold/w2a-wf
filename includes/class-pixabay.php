@@ -80,6 +80,7 @@ class WTAI_Pixabay {
     }
 
     public static function download($photo) {
+        if (!current_user_can('upload_files')) return new WP_Error('wtai_pixabay_permission', __('Media upload permission is required for Pixabay downloads.', 'wolf-forge-article-generator'));
         if (!self::allowed_url($photo['url'] ?? '', true) || !self::allowed_url($photo['page'] ?? '') || empty($photo['id']) || empty($photo['tags'])) return new WP_Error('wtai_pixabay_photo', __('Invalid Pixabay photo.', 'wolf-forge-article-generator'));
         global $wpdb;
         $lock = 'wtai_photo_' . substr(hash('sha256', DB_NAME . '.' . $wpdb->posts . ':' . (int) $photo['id']), 0, 48);

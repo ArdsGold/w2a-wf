@@ -43,6 +43,7 @@ function drive_ajax($input, $valid_nonce = true) {
 }
 $http = null;
 try {
+    WTAI_Settings::save(array('pixabay_fallback' => false));
     foreach (array('convert_numbered_to_dotted', 'unbold_except_headings', 'auto_link_phone_numbers', 'auto_insert_images', 'max_internal_links_per_post', 'max_images_per_post') as $name) delete_option('wtai_' . $name);
     $fresh = WTAI_Settings::read();
     drive_check($fresh['convert_numbered_to_dotted'] && $fresh['unbold_except_headings'] && $fresh['auto_link_phone_numbers'] && $fresh['auto_insert_images'] && $fresh['max_internal_links_per_post'] === 5 && $fresh['max_images_per_post'] === 3, 'Fresh options match the requested screenshot.');

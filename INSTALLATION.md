@@ -1,10 +1,10 @@
 # Install or upgrade Wolf Forge Article Generator
 
-Release: **r4.0.0** - local package prepared **2026-10-22 (Asia/Manila)**. See [release notes](RELEASE_NOTES.md).
+Release: **r4.0.1** - package prepared **2026-10-22 (Asia/Manila)**. See [release notes](RELEASE_NOTES.md).
 
 ## Existing w2a-wf installation
 
-For the packaged release, upload `wolf-forge-article-generator-r4.0.0.zip` through **Plugins > Add New > Upload Plugin** and choose the WordPress replacement option when prompted. Back up the plugin directory and database first. The ZIP keeps the `w2a-wf` folder so WordPress updates the existing installation.
+For the packaged release, upload `wolf-forge-article-generator-r4.0.1.zip` through **Plugins > Add New > Upload Plugin** and choose the WordPress replacement option when prompted. Back up the plugin directory and database first. The ZIP keeps the `w2a-wf` folder so WordPress updates the existing installation.
 
 Update the files in the existing `wp-content/plugins/w2a-wf` directory. Keep the directory and `word-to-article-importer.php` entry filename so WordPress preserves activation. This project has already been updated in place.
 
@@ -26,7 +26,7 @@ Preferences now use autosave without a Save Options button. Wait for **Options s
 
 ## New installation
 
-1. Use the prepared `wolf-forge-article-generator-r4.0.0.zip`, or package the `w2a-wf` folder as a ZIP, omitting `.git`, tests, and local development artifacts.
+1. Use the prepared `wolf-forge-article-generator-r4.0.1.zip`, or package the `w2a-wf` folder as a ZIP, omitting `.git`, tests, and local development artifacts.
 2. In WordPress, open **Plugins > Add New > Upload Plugin** and select the ZIP, or copy the folder directly into `wp-content/plugins/`.
 3. Activate **Wolf Forge Article Generator**.
 4. Open **Wolf Forge Articles** and choose publishing/formatting preferences on **Generate Articles** and optional image insertion/count on either **Generate Articles** or **Image Media Library**. The checkbox and count stay synchronized; choose the image source in Image Media Library. Changes save automatically; wait for "Options saved." before leaving.
@@ -96,7 +96,7 @@ return array(
 );
 ```
 
-ZIP the **w2a-wf/** folder with this configured file inside, then use that same private ZIP on your other servers. No wp-config.php edit is required on those servers. A repository checkout may omit the private file; create it using the example above if needed. This prepared private local ZIP includes your currently configured file. Public distributions should use an empty key. `config.php` is excluded from Git, but deliberately included in installation ZIPs. Keep configured ZIPs private: recipients can read the key and all servers using it share project quota. Key restrictions must permit the intended servers. Plugin replacement can overwrite this file; retain it when building each private upgrade package. Settings overrides remain in the WordPress database across replacements.
+ZIP the **w2a-wf/** folder with this configured file inside, then use that same private ZIP on your other servers. No wp-config.php edit is required on those servers. The repository intentionally tracks `config.php`, and the installation ZIP includes the current configured file unchanged. Repository readers and ZIP recipients can read the bundled key, and servers using it share project quota. Keep a separate backup when editing this file. Key restrictions must permit the intended servers. Plugin replacement can overwrite this file; retain it when building each private upgrade package. Settings overrides remain in the WordPress database across replacements.
 
 Alternatively, define a default outside the plugin in wp-config.php before WordPress loads; this takes precedence over the bundled file:
 
@@ -104,7 +104,7 @@ Alternatively, define a default outside the plugin in wp-config.php before WordP
 define('WTAI_GOOGLE_DRIVE_API_KEY', 'YOUR_SERVER_DRIVE_API_KEY');
 ```
 
-Alternatively, or to override the server default, use **Settings & Logs > Google Drive API Key > Save Override**. The saved override takes precedence; **Use Server Default** removes it. Keys stay server-side in a separate non-autoloaded WordPress option and are not displayed or exported into normal settings/history. Protect database backups and restrict the key to Google Drive API and suitable server IPs where supported; browser-referrer restrictions are unsuitable for these server requests. Keep public/repository distributions unconfigured; include the key only in your private installation ZIP. The Google Places key used for GBP images is independent.
+Alternatively, or to override the server default, use **Settings & Logs > Google Drive API Key > Save Override**. The saved override takes precedence; **Use Server Default** removes it. Keys stay server-side in a separate non-autoloaded WordPress option and are not displayed or exported into normal settings/history. Protect database backups and restrict the key to Google Drive API and suitable server IPs where supported; browser-referrer restrictions are unsuitable for these server requests. This release intentionally includes the configured file in both Git and the installation ZIP; use a saved override when a site needs a different key. The Google Places key used for GBP images is independent.
 
 Choose **Public Google Drive folder** on Generate Articles and provide a public Viewer folder link. Public DOCX downloads must be permitted by their owners. The integration imports DOCX files and native Google Docs directly within that folder, pages listings, and streams bounded temporary downloads. Native Docs are exported to Word first; no OAuth connection, subfolder traversal, or background sync is implemented. Google export output is limited to 10 MB; see [Google export limits](https://developers.google.com/workspace/drive/api/reference/rest/v3/files/export). The Plugins Status card shows the last verified API response separately from key configuration. The existing server upload-size and archive/XML limits also apply.
 
@@ -113,3 +113,18 @@ Google quotas belong to the Cloud project and can vary. The admin displays crede
 For local validation, run `tests/drive-integration.php` with the same WordPress PHP extensions and database connection as `tests/integration.php`. It mocks all Drive HTTP, creates temporary posts and credentials, and restores them.
 
 Configuration precedence: a saved site override wins, followed by the wp-config.php constant, then the plugin-local config.php. **Use Server Default** removes the database override and returns to the highest available default. Run `php -n tests/config-checks.php` from the plugin directory to verify fallback behavior using an isolated temporary configuration, without reading or modifying your real key.
+
+## Pixabay fallback setup
+
+1. Get your key from the [Pixabay API documentation](https://pixabay.com/api/docs/) while signed into your Pixabay account.
+2. Open **Wolf Forge Articles > Settings & Logs > Pixabay Image Fallback**, enter the key, and select **Save Key**. It is stored separately from Google credentials, is not autoloaded, and is never displayed after saving. Configured means a key is present; a real search during Submit validates access.
+3. On **Image Media Library**, choose **Media Library** or **Both**, enable automatic image insertion, set the maximum, and enable **Download matching Pixabay photos when local images are insufficient**. Wait for **Options saved.**
+4. Submit your documents as usual. Review the inserted/requested image count and inline Pixabay result. Previews use existing media only and never call Pixabay.
+
+For a portable default, add a separate `'pixabay_api_key' => 'YOUR_PIXABAY_KEY'` entry to the array returned by the existing private plugin-root `config.php`, preserving any `google_drive_api_key` entry. Alternatively define `WTAI_PIXABAY_API_KEY` in wp-config.php. Precedence is saved site override, wp-config constant, then private plugin config. **Remove Override** restores the available default; remove the default too if you want the credential completely unconfigured. Reset Options disables the fallback but preserves its credential. Keys are excluded from ordinary settings, history, posts, and AJAX responses. Bundled configuration is tracked in Git and included in the installation ZIP, so its values are readable to repository readers and ZIP recipients.
+
+Outbound HTTPS to pixabay.com and cdn.pixabay.com and WordPress media uploads must work. This uses [Pixabay's API](https://pixabay.com/api/docs/) with 24-hour search caching and rate-limit cooldowns, and stores selected files locally rather than hotlinking. Search terms contain article/section keywords. Each article is bounded to three searches and five download attempts; there is no background image crawler. Pixabay's [Content License](https://pixabay.com/service/license-summary/) applies to the selected photos. Source, photographer, and license references are retained.
+
+## GitHub version checker
+
+No key or setup is needed for the public ArdsGold/w2a-wf repository. Allow outbound HTTPS to raw.githubusercontent.com if you want version checks to work. Opening Wolf Forge Articles starts an administrator-only background check of the Version header on `main`; matching versions remain silent. A valid mismatch displays both versions and the repository link. Successful results are cached six hours and failures stay silent with a 15-minute retry backoff. The checker does not install updates. Keep the main PHP file's Version header and `WTAI_VERSION` in sync when preparing future versions.

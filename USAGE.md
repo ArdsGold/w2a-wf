@@ -1,6 +1,6 @@
 # Use Wolf Forge Article Generator
 
-Release: **r4.0.0**
+Release: **r4.0.1**
 
 The four plugin tabs switch in place without reloading WordPress. Selected files, image preview text, and import results stay available while switching tabs; an active import continues. Browser Back/Forward selects the matching tab. Files and preview text are still lost if you actually refresh or leave the page. Without JavaScript, tab links open normally. Duplicate pagination and Trash actions continue using their normal WordPress page requests.
 
@@ -208,6 +208,20 @@ Each available import has **View Post** (public post or unpublished preview), **
 | No Google photos | API key configured, Places API (New) enabled, billing/key restrictions, correct unambiguous business link, available Google photos, and image maximum/enablement. Check the inline status. |
 | No images inserted | Matching enabled, image maximum above zero, and both descriptive titles and alt text matching the article and local section; PHP DOM availability; the preview report. |
 | Wrong title or formatting | Filename/title rules, native Word heading/list styles, and the documented parser limitations. |
-| Broken UI after upgrade | Reload the page to load r4.0.0 assets; verify the updated plugin folder is the active one. |
+| Broken UI after upgrade | Reload the page to load r4.0.1 assets; verify the updated plugin folder is the active one. |
 
 The browser queue cannot continue after the page closes. Server memory/execution limits still apply to an individual document. See [README](README.md) for architecture, requirements, limitations, and test commands.
+
+Each article card in **Import Results** shows a mini thumbnail row for images inserted by Wolf Forge, including Media Library, downloaded Pixabay, and live GBP photos. Click a thumbnail to open the full image in a new tab. Thumbnails follow article order and also appear when a retry reuses a completed import. Articles without inserted images have no thumbnail row; unavailable media is labeled. GBP previews retain Google/photographer attribution and load live, so access requires the Places key and the temporary photo URLs can expire. Thumbnail URLs are not stored in posts or import history.
+
+## Pixabay image fallback
+
+Configure a separate key on **Settings & Logs > Pixabay Image Fallback**, then enable the fallback checkbox on **Image Media Library**. It is off initially. It supplements **Media Library** and **Both** during **Submit** when another relevant photo can improve placement; it does not change the GBP-only source. Your normal image checkbox and maximum still apply.
+
+The fallback searches using weighted article/section keywords, chooses metadata matches, and downloads only useful photos into Media Library. It uses up to three searches and five download attempts per article, with 24-hour search caching and cooldowns for rate limits. Provider tags become initial media titles/alt text; photographer/source credits are included. Existing downloaded photos are reused, and user edits to their media metadata are respected. This does not visually inspect photos or generate descriptions with AI.
+
+Images stay at least 100 article words apart and before Conclusion. Fewer images may still be inserted when matches or safe positions are insufficient. A spacing-only shortage does not start downloads. The import result explains photo additions or provider errors, and the orange edge still indicates an image/link shortfall. API failures do not prevent publishing the article. Previews never search or download Pixabay photos, and existing articles are not backfilled. Downloaded photos remain in Media Library if a later article save fails or a post is trashed; remove unwanted media using WordPress media tools.
+
+## GitHub version notice
+
+A notice above the Wolf Forge Articles tabs appears only if the installed version differs from the Version header on [the repository's main branch](https://github.com/ArdsGold/w2a-wf/blob/main/word-to-article-importer.php). It shows the running and repository versions, with a link to GitHub. Matching versions and failed checks produce no notice. The check runs in the background and caches successful results for six hours; failures back off for 15 minutes. It compares version numbers rather than code changes or release tags. There is no automatic installation or update.

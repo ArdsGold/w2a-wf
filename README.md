@@ -1,8 +1,8 @@
 # Wolf Forge Article Generator
 
-Version: **r4.0.0**
+Version: **r4.0.1**
 
-Local release: **2026-10-22 (Asia/Manila)**
+Release: **2026-10-22 (Asia/Manila)**
 
 See [release notes](RELEASE_NOTES.md), [installation](INSTALLATION.md), and [usage](USAGE.md).
 
@@ -72,11 +72,31 @@ The API requires Places API (New) and billing. Profile checks, previews, and unc
 
 Use **Cancel** beside Submit to stop the active browser upload/request and prevent remaining documents from being sent. Completed articles and the selection are kept. An interrupted request may still finish on the server; check Import History and retry the same selection/settings to reuse completed articles.
 
+Each article card in **Import Results** shows a mini thumbnail row for images inserted by Wolf Forge, including Media Library, downloaded Pixabay, and live GBP photos. Click a thumbnail to open the full image in a new tab. Thumbnails follow article order and also appear when a retry reuses a completed import. Articles without inserted images have no thumbnail row; unavailable media is labeled. GBP previews retain Google/photographer attribution and load live, so access requires the Places key and the temporary photo URLs can expire. Thumbnail URLs are not stored in posts or import history.
+
+## GitHub version notice
+
+When you open Wolf Forge Articles, a background check compares the running plugin's `WTAI_VERSION` with the **Version** header in [`word-to-article-importer.php` on the repository's main branch](https://github.com/ArdsGold/w2a-wf/blob/main/word-to-article-importer.php). A notice above the tabs appears only when valid versions differ, showing both versions and a link to the repository. Either an older or newer repository version counts as a mismatch. Equivalent `r`/`v` prefixes and trailing zero version components do not trigger a notice.
+
+Successful repository checks are cached for six hours. Changing the installed plugin version starts a fresh check. Connection failures, rate limits, missing files, and invalid headers stay silent and are retried after a 15-minute backoff. Checking is restricted to authenticated administrators on the plugin screen and does not delay the import form. No GitHub token is required for this public repository; the server makes a bounded HTTPS request for the public source file. No site credentials or article content are sent to GitHub. No code is executed, installed, or updated by this checker.
+
+This checks declared versions, rather than commits or file contents, and uses `main` rather than a release tag. Bump both the plugin header and `WTAI_VERSION` when publishing a new version. Code changes that retain the same version do not display a mismatch. The notice can take up to six hours to reflect a repository change and does not appear in Import History or public posts.
+
+## Optional Pixabay fallback
+
+When Media Library matches cannot fill usable image positions, enable **Download matching Pixabay photos when local images are insufficient** on **Image Media Library**. Add a separate Pixabay API key under **Settings & Logs > Pixabay Image Fallback**. The fallback is off by default and runs only during **Submit**, for Media Library or Both sources. GBP-only articles and image previews do not search or download Pixabay photos.
+
+The plugin makes at most three contextual photo searches and five download attempts per article. Searches use weighted article/section terms without AI, request safe-search photos, cache results for 24 hours, and honor provider rate-limit cooldowns. A candidate must match at least two article vocabulary terms, pass title/alt similarity checks, and improve the safe placement plan before downloading. This is metadata matching, not visual recognition, and cannot guarantee that a photo depicts the exact service described.
+
+Selected JPEG/PNG/WebP files are downloaded to Media Library over HTTPS, validated by actual format, dimensions, and size (at most 10 MB or the site's lower upload limit; at least 320 pixels on both sides; at most 40 megapixels). Redirects and off-provider download hosts are rejected. Photo IDs prevent duplicate downloads, including concurrent imports. Existing downloaded photos participate in normal local matching and retain user metadata edits. Provider tags supply truthful initial titles/alt text; the plugin does not invent visual descriptions or copy an article title onto unrelated photos. Captions include photographer credit, with a Pixabay source link in the article; source and license links are retained in attachment metadata.
+
+The existing image maximum, 100-word gap, and before-Conclusion rule still apply. Spacing-only shortages do not trigger downloads. No useful match, unavailable credentials, or provider errors leave the article import running with available images and an inline explanation. Downloaded images remain in Media Library even if a later article save fails or the article is trashed. Existing articles are not automatically backfilled. Searches send a small set of article/section keywords to Pixabay, not the whole document. See [setup](INSTALLATION.md#pixabay-fallback-setup) and [usage](USAGE.md#pixabay-image-fallback).
+
 ## Google Drive document source
 
 On Generate Articles, choose **Public Google Drive folder**, paste a public Viewer folder URL, and select **Load Documents**. Select documents and use Submit with the existing scheduling, SEO, formatting, images, and internal-link options. This version lists downloadable DOCX files and native Google Docs directly inside the folder, with pagination and a maximum of 1,000 loaded documents per batch. Google Docs are exported to DOCX automatically before the normal importer runs. Shortcuts and subfolders are excluded. Google Docs exports have a 10 MB output limit, and the existing server/document limits still apply.
 
-To carry one Drive key between servers, enter it once in the plugin root `config.php` and build/copy your private installation ZIP with that file included. Key precedence is: saved Settings & Logs override, `WTAI_GOOGLE_DRIVE_API_KEY` in wp-config.php, then the plugin-local `config.php`. An empty configuration leaves Drive unconfigured. The private file is ignored by Git but included in installation ZIPs; keep configured ZIPs private. Servers using the key share its project quota. Plugin replacement can overwrite this file, so retain it when preparing upgrades. Administrators can save a separate private override in Settings & Logs; the override takes precedence and can be removed with **Use Server Default**. Enable Google Drive API and configure suitable API/IP restrictions for server requests. Keys are not returned to the browser, included in normal settings/history, or copied into posts. The Places photo key is separate.
+To carry one Drive key between servers, enter it once in the plugin root `config.php` and build/copy your private installation ZIP with that file included. Key precedence is: saved Settings & Logs override, `WTAI_GOOGLE_DRIVE_API_KEY` in wp-config.php, then the plugin-local `config.php`. An empty configuration leaves Drive unconfigured. The configured file is intentionally tracked in this repository and included in installation ZIPs. Repository readers and ZIP recipients can read its bundled credentials. Servers using the key share its project quota. Plugin replacement can overwrite this file, so retain it when preparing upgrades. Administrators can save a separate private override in Settings & Logs; the override takes precedence and can be removed with **Use Server Default**. Enable Google Drive API and configure suitable API/IP restrictions for server requests. Keys are not returned to the browser, included in normal settings/history, or copied into posts. The Places photo key is separate.
 
 The Generate Articles status reports the selected credential source and Google access/quota errors, not an exact remaining quota counter. The Plugins Status card also shows Google Drive API as Not configured, Configured (not checked), Connected, Rate or download limit reached, Access or API key error, or Connection error. It reflects the last API response cached for up to one hour and updates after listing/importing or changing credentials; having a key alone does not mean a connection has been verified. On a reported quota limit, the queue pauses and retains its selection; wait and retry or configure a key from another Cloud project. Keys in the same project share project quotas, and changing projects does not bypass file-specific download restrictions. Retry the same selection/settings so completed articles can be reused. Temporary downloads are bounded by the server file-size limit, validated as DOCX, and deleted after processing. See [Drive setup](INSTALLATION.md#public-google-drive-folders).
 
@@ -133,6 +153,8 @@ includes/class-duplicate-pages.php  Duplicate content listing and safe Trash che
 includes/class-docx-parser.php      Bounded DOCX/XML parsing
 includes/class-content-processor.php Title preparation and formatting cleanup
 includes/class-image-matcher.php    Media scoring and safe word-percentage placement
+includes/class-pixabay.php          Cached photo searches and validated local downloads
+includes/class-version-checker.php  Cached, mismatch-only public GitHub version checks
 includes/class-gbp-photos.php       Public-link resolution and live Google photo rendering
 includes/class-google-drive.php    Public Word/Google Docs listing, private keys, bounded downloads/exports
 includes/class-internal-linker.php  Title-phrase/keyphrase matching and safe internal anchors
@@ -153,7 +175,7 @@ This importer produces HTML in standard posts. It does not extract embedded DOCX
 
 Automatic Media Library matching excludes the configured WordPress site logo/site icon and files with logo, icon, favicon, logotype, or logomark labels (including plurals) in their title, alt text, caption, description, or filename. Filename separators, numbered suffixes, and camel-case names such as CompanyLogo are recognized. Words such as silicon and iconic are not excluded. This is a metadata filter, not visual recognition: unlabeled graphics can still qualify. Google Business Profile photos do not provide equivalent classification metadata, so this filter applies to the local-library part of Media Library/Both. Fewer eligible photos produce fewer insertions rather than logo/icon substitutes.
 
-Image matching uses deterministic TF-IDF/cosine scoring across all four metadata fields, with no AI, external service, or fixed stopword list. Unicode word tokens match exactly after case/accent normalization; synonyms and related concepts are not inferred. Titles and alt text have weight 3, captions 2, descriptions 1. Article titles and headings receive extra weight. Common library terms carry less statistical weight, but generic shared words can still match; review the preview and maintain descriptive metadata.
+Image matching uses deterministic TF-IDF/cosine scoring across all four metadata fields, with no AI or fixed stopword list. Local matching does not use an external service; the optional Pixabay fallback uses its photo API. Unicode word tokens match exactly after case/accent normalization; synonyms and related concepts are not inferred. Titles and alt text have weight 3, captions 2, descriptions 1. Article titles and headings receive extra weight. Common library terms carry less statistical weight, but generic shared words can still match; review the preview and maintain descriptive metadata.
 
 For Media Library matching, the maximum defaults to three and accepts any non-negative integer; zero disables insertion. Actual output is bounded by relevant, renderable, unique images and safe article blocks. For N inserted images, targets are 1/N through N/N of the word count before the first **Conclusion** heading (or the full article if absent; three: 33%, 67%, 100%). Both a descriptive media title and alt text must independently match the article and the destination paragraph or its active section headings. Missing or unrelated title/alt text excludes an image; a matching caption or description alone cannot qualify it. Newly inserted images must have at least 100 article words between their positions (excluding image captions). The planner reserves room for the remaining images; fewer images are inserted if relevant positions cannot satisfy this gap. Existing article images are not repositioned. Context takes priority over percentages: images stay in a matching section, so actual positions can move substantially from their targets. No new images are inserted at or after Conclusion, including later sections. The requested count is spread over the preceding content, subject to relevant images and safe blocks. Images snap to complete block boundaries without splitting lists or tables. The plugin inserts inside standard post content; the theme controls the surrounding post layout and no fixed template image slots are required. WordPress supplies native image markup and available responsive sizes; stored alt text and plain-text captions are preserved. Existing articles are not backfilled.
 
@@ -168,6 +190,7 @@ Run the dependency-free regression checks from the WordPress root:
 ```sh
 php -n wp-content/plugins/w2a-wf/tests/run.php
 php -n wp-content/plugins/w2a-wf/tests/config-checks.php
+php -n wp-content/plugins/w2a-wf/tests/version-checks.php
 node wp-content/plugins/w2a-wf/tests/admin.test.js
 ```
 
@@ -178,12 +201,13 @@ For a **local/test WordPress installation only**, using PHP configured for that 
 ```sh
 php wp-content/plugins/w2a-wf/tests/integration.php
 php wp-content/plugins/w2a-wf/tests/drive-integration.php
+php wp-content/plugins/w2a-wf/tests/pixabay-integration.php
 ```
 
-Integration checks create temporary published/draft/future posts and attachment records, simulate failures, verify retries/locking/media matches, and remove their records in a `finally` block. Google HTTP responses are mocked and temporary preferences/credentials are restored. They require an existing administrator and initialize the plugin schema. They do not edit existing content or change the site timezone. The private configuration checks use an isolated temporary directory and do not read or rewrite your real config.php. Optional browser checks run with `python wp-content/plugins/w2a-wf/tests/drive-browser.py` when Playwright and Chromium are installed; browser fixtures restore preferences and remove their temporary authenticated session.
+Integration checks create temporary published/draft/future posts and attachment records, simulate failures, verify retries/locking/media matches, and remove their records in a `finally` block. Google and Pixabay HTTP responses are mocked and temporary preferences/credentials are restored. They require an existing administrator and initialize the plugin schema. They do not edit existing content or change the site timezone. The private configuration checks use an isolated temporary directory and do not read or rewrite your real config.php. Optional browser checks run with `python wp-content/plugins/w2a-wf/tests/drive-browser.py` when Playwright and Chromium are installed; browser fixtures restore preferences and remove their temporary authenticated session.
 
-## Changes in r4.0.0
+## Changes in r4.0.1
 
 The initial DOCX H1 is now always removed; later H1s become H2. Rank Math is listed in Plugins Status alongside Yoast; Yoast receives its SEO fields and keyphrase, while Rank Math receives only its keyphrase when active. Existing posts and manual Yoast keyphrases are preserved.
 
-This release consolidates the Wolf Forge rebrand and refactor, persistent tabs/settings, scheduling/parser fixes, import-history and duplicate-post tools, SEO, native internal linking, contextual Media Library images, live GBP photos, public Drive imports, portable private Drive configuration, cancellation, and the requested first-launch defaults. AI recognition and batch AI metadata editing are not implemented. See [CHANGELOG.md](CHANGELOG.md) for release details and upgrade notes.
+r4.0.1 adds mismatch-only GitHub version notices, full-image thumbnail previews in Import Results, additional Pixabay validation, and tracked portable configuration. It includes the r4.0.0 Wolf Forge rebrand and refactor, persistent tabs/settings, scheduling/parser fixes, import-history and duplicate-post tools, SEO, native internal linking, contextual Media Library images, live GBP photos, public Drive imports, portable private Drive configuration, cancellation, and the requested first-launch defaults. AI recognition and batch AI metadata editing are not implemented. See [CHANGELOG.md](CHANGELOG.md) for release details and upgrade notes.

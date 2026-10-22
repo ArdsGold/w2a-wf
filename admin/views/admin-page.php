@@ -8,6 +8,7 @@ $url = admin_url('admin.php?page=word-to-article-importer');
 <div class="wrap wtai-import-page">
     <h1><?php _e('Wolf Forge Article Generator', 'wolf-forge-article-generator'); ?> <span class="wtai-version"><?php echo esc_html(WTAI_VERSION); ?></span></h1>
     <p class="description"><?php _e('Turn Word documents into WordPress articles. Part of the Wolf Forge publishing tools.', 'wolf-forge-article-generator'); ?></p>
+    <div id="wtai-version-notice" role="status" aria-live="polite" hidden></div>
     <nav class="nav-tab-wrapper wtai-tabs" aria-label="<?php esc_attr_e('Article generator', 'wolf-forge-article-generator'); ?>">
         <a class="nav-tab <?php echo $tab === 'generate' ? 'nav-tab-active' : ''; ?>" <?php echo $tab === 'generate' ? 'aria-current="page"' : ''; ?> href="<?php echo esc_url($url); ?>"><?php _e('Generate Articles', 'wolf-forge-article-generator'); ?></a>
         <a class="nav-tab <?php echo $tab === 'duplicates' ? 'nav-tab-active' : ''; ?>" <?php echo $tab === 'duplicates' ? 'aria-current="page"' : ''; ?> href="<?php echo esc_url(add_query_arg('tab', 'duplicates', $url)); ?>"><?php _e('Duplicate Blogs', 'wolf-forge-article-generator'); ?></a>

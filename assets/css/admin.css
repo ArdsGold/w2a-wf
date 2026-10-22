@@ -255,6 +255,44 @@
     color: #888;
 }
 
+.wtai-result-images {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 10px 0;
+    padding: 0;
+    list-style: none;
+}
+
+.wtai-result-images > li {
+    max-width: 220px;
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.wtai-result-images .wtai-result-thumbnail,
+.wtai-result-images .wtai-gbp-image,
+.wtai-result-thumbnail-unavailable {
+    display: block;
+    width: 80px !important;
+    height: 64px !important;
+    object-fit: cover;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.wtai-result-images .wtai-gbp-attribution {
+    padding: 4px 0 !important;
+    font-size: 11px !important;
+}
+
+.wtai-result-thumbnail-unavailable {
+    box-sizing: border-box;
+    padding: 6px;
+    background: #f6f7f7;
+    font-size: 11px;
+}
+
 /* Import History */
 .wtai-history-item {
     padding: 10px;

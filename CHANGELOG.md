@@ -1,6 +1,19 @@
 # Changelog
 
+## r4.0.1 - 2026-10-22
+
+- Add an administrator-only GitHub version check against the main-branch plugin header. A notice appears only for a valid version mismatch; checks are asynchronous, cached, bounded, and silent on failure, with no code downloads or automatic updates.
+
+- Show compact thumbnails on each Import Results card for inserted Media Library, Pixabay, and live GBP images, with full-image links in new tabs, Google attribution, missing-media labels, and completed-import retry support.
+
+- Keep the configured root `config.php` tracked in Git and included unchanged in installation ZIPs for portable installations. Remove its ignore rule and update setup/release documentation.
+- Strengthen Pixabay upload permission checks and validation coverage; verify private credential precedence, file reuse, attribution, and recoverable provider failures.
+- Remove the obsolete admin page class after consolidating the four-tab admin screen.
+- Validate 274 regressions, 112 WordPress integration checks, 62 Pixabay checks, 45 Drive checks, 20 isolated configuration checks, 37 version-checker checks, JavaScript controls, and browser flows.
+
 ## r4.0.0 - 2026-10-22
+
+- Add optional automatic Pixabay fallback during Submit for local-image shortages, with private credentials/defaults, 24-hour search caching, provider cooldowns, contextual placement checks, validated local downloads, deduplication, and source credits. Preview remains read-only; provider failures preserve article publishing.
 
 Wolf Forge Article Generator replaces the Word to Article Importer branding and consolidates the importer refactor, administration, scheduling, SEO, and image features.
 

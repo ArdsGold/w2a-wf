@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Wolf Forge Article Generator
  * Description: Import .docx files as WordPress articles with bulk upload, formatting cleanup, scheduling, and optional media matching.
- * Version: r4.0.0
+ * Version: r4.0.1
  * Author: Macky Villafuerte, Arden Guinto
  * License: GPL v2 or later
  * Requires at least: 6.0
@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('WTAI_VERSION', 'r4.0.0');
+define('WTAI_VERSION', 'r4.0.1');
 define('WTAI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('WTAI_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -56,6 +56,7 @@ class Word_To_Article_Importer {
         add_action('wp_ajax_wtai_google_photos', array($this, 'ajax_google_photos'));
         add_action('wp_ajax_wtai_google_drive', array($this, 'ajax_google_drive'));
         add_action('wp_ajax_wtai_pixabay', array($this, 'ajax_pixabay'));
+        add_action('wp_ajax_wtai_check_version', array($this, 'ajax_check_version'));
         add_action('wp_ajax_wtai_get_import_history', array($this, 'ajax_get_import_history'));
         add_action('wp_ajax_wtai_trash_import', array($this, 'ajax_trash_import'));
         add_action('wp_ajax_wtai_clear_import_history', array($this, 'ajax_clear_import_history'));
@@ -79,6 +80,7 @@ class Word_To_Article_Importer {
         require_once WTAI_PLUGIN_DIR . 'includes/class-gbp-photos.php';
         require_once WTAI_PLUGIN_DIR . 'includes/class-google-drive.php';
         require_once WTAI_PLUGIN_DIR . 'includes/class-pixabay.php';
+        require_once WTAI_PLUGIN_DIR . 'includes/class-version-checker.php';
         require_once WTAI_PLUGIN_DIR . 'includes/class-server-info.php';
     }
 
@@ -309,6 +311,11 @@ class Word_To_Article_Importer {
             $this->error_handler->log_error(WTAI_Error_Handler::ERR_UNKNOWN_ERROR, array('file' => $files[0]['name'], 'error' => $error->getMessage()));
             wp_send_json_error(array('message' => $error->getMessage()), 500);
         }
+    }
+
+    public function ajax_check_version() {
+        $this->authorize_ajax();
+        wp_send_json_success(WTAI_Version_Checker::status());
     }
 
     public function ajax_pixabay() {

@@ -32,6 +32,7 @@ foreach (WTAI_Settings::defaults() as $key => $default) {
 foreach (array('google_places_api_key', 'gbp_resolved_profile') as $key) $original_options[$key] = get_option('wtai_' . $key, null);
 
 try {
+    WTAI_Settings::save(array('pixabay_fallback' => false));
     $preferences = array('image_source' => 'media_library', 'gbp_profile_url' => '', 'publish_schedule' => 'custom_range', 'schedule_start_date' => '2099-01-01', 'schedule_end_date' => '2099-02-01', 'schedule_interval' => 'week', 'auto_insert_images' => true);
     verify(is_array(WTAI_Settings::save($preferences)), 'Preferences are saved to WordPress options.');
     verify(WTAI_Settings::read()['publish_schedule'] === 'custom_range', 'The selected publish mode is restored.');
@@ -92,6 +93,7 @@ try {
     }
     verify(count(array_unique($range_ids)) === 4, 'Distinct documents sharing a range date remain separate posts.');
     $lock_settings = $settings;
+    unset($lock_settings['pixabay_fallback']);
     if (empty($lock_settings['max_internal_links_per_post'])) unset($lock_settings['max_internal_links_per_post']);
     if (($lock_settings['image_source'] ?? 'media_library') === 'media_library') unset($lock_settings['image_source'], $lock_settings['gbp_profile_url']);
     $key = hash('sha256', hash_file('sha256', $path) . wp_json_encode($lock_settings) . $date->format('c'));
@@ -191,6 +193,11 @@ try {
     verify(substr_count($images, '<figure') === 2, 'Contextual titles and alt text find real media rows.');
     verify(preg_match('~</p>\s*<figure.*?</figure>\s*<p>.*?</p>\s*<figure~s', $images) === 1, 'Native images are distributed across safe paragraph boundaries.');
     verify(strpos($images, 'width="') !== false && strpos($images, 'height="') !== false, 'Native WordPress image dimensions are preserved.');
+    $thumbnails = $matcher->result_thumbnails($images . '<figure><img src="https://example.test/unrelated.png"></figure>');
+    verify(substr_count($thumbnails, 'class="wtai-result-thumbnail"') === 2 && substr_count($thumbnails, '<li>') === 2, 'Result thumbnails show only images inserted by the plugin, in article order.');
+    verify(strpos($thumbnails, esc_url(wp_get_attachment_image_url($image_ids[0], 'full'))) !== false && substr_count($thumbnails, 'target="_blank"') === 2, 'Native thumbnails open the full attachment image in a new tab.');
+    verify($matcher->result_thumbnails('<p>No inserted images.</p>') === '', 'An article without inserted images has no empty thumbnail row.');
+    verify(strpos($matcher->result_thumbnails('<figure class="wp-block-image wtai-inserted-image"><img class="wp-image-999999999"></figure>'), 'Image unavailable') !== false, 'Missing media is identified without a broken image or import error.');
     $conclusion_tail = '<h2>Conclusion</h2><p>' . $token . ' forest ocean.</p><h2>Next steps</h2><p>' . $token . ' ocean.</p>';
     $bounded_images = $matcher->insert_images('<p>' . str_repeat($token . ' forest. ', 50) . '</p><p>' . str_repeat($token . ' ocean. ', 50) . '</p>' . $conclusion_tail, array('max_images_per_post' => 2), $token);
     verify($matcher->get_report()['inserted'] === 2, 'Conclusion cutoff retains both requested native Media Library images.');
@@ -302,6 +309,7 @@ try {
     $unlinked_result = $importer->import($link_file, $link_settings, $link_date);
     verify($unlinked_result['post_id'] !== $link_result['post_id'] && strpos(get_post_field('post_content', $unlinked_result['post_id']), '<a ') === false, 'A zero maximum disables insertion and has a distinct identity from enabled linking.');
     $legacy_settings = $link_settings;
+    unset($legacy_settings['pixabay_fallback']);
     unset($legacy_settings['max_internal_links_per_post']);
     if (($legacy_settings['image_source'] ?? 'media_library') === 'media_library') unset($legacy_settings['image_source'], $legacy_settings['gbp_profile_url']);
     $legacy_marker = 'wfag:' . hash('sha256', hash_file('sha256', $link_path) . wp_json_encode($legacy_settings) . $link_date->format('c'));
@@ -334,6 +342,10 @@ try {
     $google_post = $google_result['post_id'];
     $google_body = get_post_field('post_content', $google_post);
     verify($google_result['images']['inserted'] === 3 && substr_count($google_body, '[wtai_gbp_photo ') === 3, 'Real DOCX-to-WordPress imports preserve three live GBP shortcode slots.');
+    verify(substr_count($google_result['image_previews'], 'class="wtai-gbp-image"') === 3 && strpos($google_result['image_previews'], 'Test photographer') !== false && strpos($google_result['image_previews'], 'google-maps-logo.svg') !== false, 'GBP result thumbnails include live images and Google/photographer attribution.');
+    verify(preg_match('~<a[^>]+href="https://lh3\.googleusercontent\.com/[^\"]+"[^>]+target="_blank"~', $google_result['image_previews']) === 1 && strpos($google_result['image_previews'], $google_key) === false, 'GBP thumbnail links open the full live photo without exposing API credentials.');
+    $google_retry = $importer->import(array('name' => $token . '-google-photos.docx', 'tmp_name' => $google_path), $google_settings, WTAI_Scheduler::calculate($google_settings, 1)[0]);
+    verify($google_retry['existing'] && substr_count($google_retry['image_previews'], 'class="wtai-gbp-image"') === 3, 'Reusing a completed import still returns its image thumbnails.');
     verify(strrpos($google_body, '[wtai_gbp_photo ') < strpos($google_body, '<h2>Conclusion</h2>'), 'Saved GBP placeholders stay before the Conclusion heading.');
     verify(strpos($google_body, $google_key) === false && strpos($google_body, 'googleusercontent') === false && strpos($google_body, '/photos/test') === false, 'Saved posts contain no Google credentials, expiring image URLs, or photo references.');
     $google_history = $wpdb->get_var($wpdb->prepare("SELECT settings FROM {$wpdb->prefix}wtai_import_history WHERE post_id = %d", $google_post));

@@ -9,7 +9,7 @@ PHP=['php','-n','-d','extension_dir=C:/php/ext','-d','extension=mysqli','-d','ex
 def php(code, data=None):
     result=subprocess.run(PHP+[code],input=data,text=True,capture_output=True,check=True)
     return result.stdout
-state=json.loads(php(r"""require 'wp-load.php'; require_once 'wp-content/plugins/w2a-wf/word-to-article-importer.php'; $users=get_users(array('role'=>'administrator','number'=>1)); $id=$users[0]->ID; wp_set_current_user($id); $expires=time()+1800; $token=WP_Session_Tokens::get_instance($id)->create($expires); $options=array(); foreach(array_merge(array_keys(WTAI_Settings::defaults()),array('google_drive_api_key','drive_folder_url')) as $name) $options[$name]=get_option('wtai_'.$name,null); echo wp_json_encode(array('id'=>$id,'token'=>$token,'options'=>$options,'source'=>WTAI_Google_Drive::status()['source'],'cookies'=>array(array('name'=>AUTH_COOKIE,'value'=>wp_generate_auth_cookie($id,$expires,'auth',$token),'url'=>home_url('/')),array('name'=>LOGGED_IN_COOKIE,'value'=>wp_generate_auth_cookie($id,$expires,'logged_in',$token),'url'=>home_url('/')))));"""))
+state=json.loads(php(r"""require 'wp-load.php'; require_once 'wp-content/plugins/w2a-wf/word-to-article-importer.php'; $users=get_users(array('role'=>'administrator','number'=>1)); $id=$users[0]->ID; wp_set_current_user($id); $expires=time()+1800; $token=WP_Session_Tokens::get_instance($id)->create($expires); $options=array(); foreach(array_merge(array_keys(WTAI_Settings::defaults()),array('google_drive_api_key','drive_folder_url','pixabay_api_key')) as $name) $options[$name]=get_option('wtai_'.$name,null); echo wp_json_encode(array('id'=>$id,'token'=>$token,'options'=>$options,'version'=>WTAI_VERSION,'source'=>WTAI_Google_Drive::status()['source'],'cookies'=>array(array('name'=>AUTH_COOKIE,'value'=>wp_generate_auth_cookie($id,$expires,'auth',$token),'url'=>home_url('/')),array('name'=>LOGGED_IN_COOKIE,'value'=>wp_generate_auth_cookie($id,$expires,'logged_in',$token),'url'=>home_url('/')))));"""))
 try:
     with sync_playwright() as pw:
         browser=pw.chromium.launch()
@@ -24,9 +24,14 @@ window.testCopyText = await items[0].data['text/plain'].text();
         errors=[]
         page.on('pageerror',lambda error:errors.append(str(error)))
         quota=[True]
+        version_mode=['matching']
         imports=[]
         cancel_mode=[None]
         held=[]
+        pixel='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j6r8AAAAASUVORK5CYII='
+        thumbnail_items=[f'<li><a href="https://example.test/{name}-full.png" target="_blank" rel="noopener"><img class="wtai-result-thumbnail" src="{pixel}" alt="{name}"></a></li>' for name in ['library','pixabay']]
+        thumbnail_items.append(f'<li><a href="https://example.test/gbp-full.png" target="_blank" rel="noopener"><img class="wtai-gbp-image" src="{pixel}" alt="GBP"></a><span class="wtai-gbp-attribution">Google Maps / Photographer</span></li>')
+        context.route('https://example.test/*-full.png',lambda route:route.fulfill(content_type='text/plain',body='Full image navigation test'))
         def route_ajax(route):
             content_type=route.request.headers.get('content-type','')
             if 'multipart/form-data' in content_type:
@@ -35,6 +40,11 @@ window.testCopyText = await items[0].data['text/plain'].text();
             else:
                 body=parse_qs(route.request.post_data or '')
             def value(name): return body.get(name,[''])[0]
+            if value('action')=='wtai_check_version':
+                if version_mode[0]=='error':
+                    return route.fulfill(status=503,json={'success':False,'data':{'message':'Version check unavailable'}})
+                remote={'matching':state['version'],'newer':'r4.1.0','older':'r3.9.0'}[version_mode[0]]
+                return route.fulfill(json={'success':True,'data':{'mismatch':remote!=state['version'],'installed':state['version'],'repository':remote}})
             if value('action')=='wtai_get_import_history':
                 return route.fulfill(json={'success':True,'data':{'history':[{'status':'completed','post_id':321,'post_title':'Clipboard test article','original_filename':'clipboard.docx','view_url':'https://example.test/clipboard/','edit_url':'','can_trash':False}]}})
             if (cancel_mode[0]=='local' and value('action')=='wtai_upload_documents') or (cancel_mode[0]=='preflight' and value('action')=='wtai_validate_import' and not value('preview')):
@@ -52,11 +62,22 @@ window.testCopyText = await items[0].data['text/plain'].text();
                 imports.append(value('file_id'))
                 if quota[0] and len(imports)==2:
                     return route.fulfill(status=429,json={'success':False,'data':{'code':'wtai_drive_quota','message':'Google Drive quota reached. Use Settings & Logs or retry later.','drive_status':{'source':'override','connection':'quota','connection_label':'Rate or download limit reached','notice':'Quota reached.'}}})
-                return route.fulfill(json={'success':True,'data':{'file':'Article.docx','post_id':321,'status':'publish','publish_date':'Immediate','existing':not quota[0],'images':{'inserted':1 if value('document_index')=='0' else 3,'requested':3},'links':{'inserted':3 if value('document_index')=='1' else 5,'requested':5}}})
+                return route.fulfill(json={'success':True,'data':{'file':'Article.docx','post_id':321,'status':'publish','publish_date':'Immediate','existing':not quota[0],'image_previews':'<ul class="wtai-result-images">'+''.join(thumbnail_items[:1 if value('document_index')=='0' else 3])+'</ul>','images':{'inserted':1 if value('document_index')=='0' else 3,'requested':3},'links':{'inserted':3 if value('document_index')=='1' else 5,'requested':5}}})
             route.continue_()
         page.route('**/admin-ajax.php',route_ajax)
         page.goto('http://krakentesting.local/wp-admin/admin.php?page=word-to-article-importer')
         page.wait_for_function("document.querySelector('#wtai-drive-key-status').textContent.length > 0")
+        assert not page.locator('#wtai-version-notice').is_visible(),'Matching versions stay hidden'
+        for mode in ['newer','older','error','matching']:
+            version_mode[0]=mode
+            with page.expect_response(lambda response:'wtai_check_version' in (response.request.post_data or '')):
+                page.reload()
+            if mode in ['newer','older']:
+                page.wait_for_function("!document.querySelector('#wtai-version-notice').hidden")
+                assert ('r4.1.0' if mode=='newer' else 'r3.9.0') in page.locator('#wtai-version-notice').inner_text()
+                assert page.locator('#wtai-version-notice a').get_attribute('href')=='https://github.com/ArdsGold/w2a-wf'
+            else:
+                assert not page.locator('#wtai-version-notice').is_visible(),'Matching and unavailable checks must stay hidden'
         page.wait_for_function("!document.querySelector('#wtai-generate-copy-imports').disabled")
         page.locator('#wtai-generate-copy-imports').click()
         page.wait_for_function("document.querySelector('#wtai-generate-copy-status').textContent.includes('1 imports copied')")
@@ -69,6 +90,18 @@ window.testCopyText = await items[0].data['text/plain'].text();
         page.locator('#wtai-copy-imports').click()
         assert page.evaluate('window.testCopyHTML')==generated_copy,'Both buttons copy the same completed history entries'
         assert '1 imports copied' in page.locator('#wtai-history-status').inner_text()
+        page.locator('#wtai-pixabay-api-key').fill('browser-test-pixabay-123456')
+        page.locator('#wtai-pixabay-save-key').click()
+        page.wait_for_function("document.querySelector('#wtai-pixabay-api-key').value === ''")
+        assert 'configured' in page.locator('#wtai-pixabay-key-status').inner_text()
+        assert 'browser-test-pixabay-123456' not in page.content(),'Saved credentials must not be rendered'
+        page.locator('.wtai-tabs a[href*="tab=images"]').click()
+        page.locator('#wtai-pixabay-fallback').check()
+        page.wait_for_timeout(800)
+        assert json.loads(php("require 'wp-load.php'; echo wp_json_encode((bool)get_option('wtai_pixabay_fallback'));")) is True
+        page.locator('.wtai-tabs a[href*="tab=settings"]').click()
+        page.locator('#wtai-pixabay-remove-key').click()
+        page.wait_for_function("document.querySelector('#wtai-pixabay-key-status').textContent.includes('not configured')")
         page.locator('#wtai-drive-api-key').fill('browser-test-drive-override-a-12345')
         page.locator('#wtai-drive-save-key').click()
         page.wait_for_function("document.querySelector('#wtai-drive-key-status').textContent.includes('override')")
@@ -78,6 +111,7 @@ window.testCopyText = await items[0].data['text/plain'].text();
         for selector in ['#wtai-auto-phone-links','#wtai-convert-lists','#wtai-unbold-text','#wtai-generate-auto-images','#wtai-auto-images']:
             assert page.locator(selector).is_checked(),selector
         assert page.locator('#wtai-generate-max-images').input_value()=='3'
+        assert not page.locator('#wtai-pixabay-fallback').is_checked(),'Reset turns the optional fallback off'
         assert page.locator('#wtai-cancel-import').is_disabled(),'Reset leaves Cancel disabled when idle'
         assert 'override' in page.locator('#wtai-drive-key-status').inner_text()
         page.locator('.wtai-tabs a').first.click()
@@ -113,6 +147,20 @@ window.testCopyText = await items[0].data['text/plain'].text();
         assert page.locator('.wtai-result-item.success').count()==1,'Complete articles stay green'
         edge=page.locator('.wtai-result-item.warning').first.evaluate('(element) => ({color: getComputedStyle(element).borderLeftColor, width: getComputedStyle(element).borderLeftWidth})')
         assert edge=={'color':'rgb(217, 119, 6)','width':'4px'},edge
+        assert page.locator('.wtai-result-image-previews').count()==3
+        assert page.locator('.wtai-result-images > li').count()==7,'Every returned image thumbnail is shown'
+        thumb=page.locator('.wtai-result-images img').first
+        assert thumb.evaluate('(el) => getComputedStyle(el).width')=='80px'
+        assert thumb.evaluate('(el) => getComputedStyle(el).height')=='64px'
+        with page.expect_popup() as popup_event:
+            page.locator('.wtai-result-images a').first.click()
+        popup=popup_event.value
+        popup.wait_for_url('https://example.test/library-full.png')
+        popup.close()
+        page.set_viewport_size({'width':390,'height':844})
+        assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'),'Thumbnail rows must wrap on mobile'
+        assert page.locator('.wtai-result-images .wtai-gbp-attribution').first.is_visible()
+        page.set_viewport_size({'width':1280,'height':1000})
         for mode in ['drive','local','preflight']:
             cancel_mode[0]=mode
             held.clear()
@@ -148,6 +196,6 @@ window.testCopyText = await items[0].data['text/plain'].text();
         assert page.locator('#wtai-drive-folder').is_disabled(),'Hidden invalid URL must not block local submissions'
         assert not errors,errors
         browser.close()
-    print('PASS: browser Drive selection, shared Copy All Imports buttons, quota pause, key override, retained tabs/retry, upload/Drive/preflight cancellation, first-launch reset, and mobile checks. Initial server key source: '+state['source'])
+    print('PASS: browser mismatch-only version notices, result thumbnails/full-image clicks/mobile wrapping, Pixabay key save/remove, fallback autosave/reset, Drive selection, shared Copy All Imports buttons, quota pause, key override, retained tabs/retry, upload/Drive/preflight cancellation, first-launch reset, and mobile checks. Initial server key source: '+state['source'])
 finally:
     php(r"""require 'wp-load.php'; $state=json_decode(stream_get_contents(STDIN),true); foreach($state['options'] as $name=>$value) { if($value===null) delete_option('wtai_'.$name); else update_option('wtai_'.$name,$value); } WP_Session_Tokens::get_instance($state['id'])->destroy($state['token']); foreach(array('browser-test-drive-override-a-12345','browser-test-drive-override-b-12345') as $key) delete_transient('wtai_drive_'.substr(hash('sha256',$key),0,24));""",json.dumps(state))
