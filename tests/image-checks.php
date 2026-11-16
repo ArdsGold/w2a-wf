@@ -8,12 +8,31 @@ $GLOBALS['wfag_test_media'] = array(
     3 => array('title' => 'Orchard', 'alt' => 'Orchard', 'caption' => 'Orchard captionkeyword', 'description' => ''),
     4 => array('title' => 'Orchard', 'alt' => 'Orchard', 'caption' => '', 'description' => 'Orchard descriptionkeyword'),
 );
+WTAI_Image_Matcher::register_article_image_size();
+check($GLOBALS['wfag_test_image_sizes']['wtai-article-600x400'] === array(600, 400, true), 'The plugin registers an exact cropped 600x400 rendition.');
 WTAI_Media_Index::invalidate();
 $matcher = new WTAI_Image_Matcher();
 $body = str_repeat('<p>' . str_repeat('Orchard trees orchard. ', 20) . '</p>', 9);
 $output = $matcher->insert_images($body, array('max_images_per_post' => 3), 'Orchard');
 $report = $matcher->get_report();
 check($report['inserted'] === 3, 'Three relevant images are inserted by default.');
+check(strpos($output, 'width="600" height="400"') !== false, 'Inserted Media Library images declare the 600x400 rendition dimensions.');
+check(strpos($output, 'Orchard captionkeyword') === false && strpos($output, 'Orchard descriptionkeyword') === false && strpos($output, '<figcaption') === false, 'Attachment captions and descriptions are not rendered in generated articles.');
+check(strpos($output, 'alt="Orchard') !== false, 'Generated image markup preserves attachment alt text.');
+check(count($GLOBALS['wfag_intermediate_requests']) === 3 && $GLOBALS['wfag_intermediate_requests'][0][1] === 600 && $GLOBALS['wfag_intermediate_requests'][0][2] === 400 && $GLOBALS['wfag_intermediate_requests'][0][3] === true, 'Missing crops are generated as exact 600×400 crops.');
+foreach (array_column($report['placements'], 'id') as $image_id) {
+    check(($GLOBALS['wfag_test_media'][$image_id]['metadata']['sizes']['wtai-article-600x400']['width'] ?? 0) === 600, 'Generated crop metadata is saved for attachment ' . $image_id . '.');
+    check($GLOBALS['wfag_test_media'][$image_id]['caption'] === ($image_id === 3 ? 'Orchard captionkeyword' : ''), 'Existing Media Library captions are not modified.');
+}
+$saved_media = $GLOBALS['wfag_test_media'];
+$GLOBALS['wfag_test_media'] = array(1 => $saved_media[1]);
+$GLOBALS['wfag_test_pixabay_credit'][1] = array('author' => 'Test Photographer', 'page' => 'https://pixabay.com/photos/orchard-123/');
+WTAI_Media_Index::invalidate();
+$credited_output = $matcher->insert_images(str_repeat('<p>' . str_repeat('Orchard trees orchard. ', 20) . '</p>', 9), array('max_images_per_post' => 1), 'Orchard');
+check(strpos($credited_output, 'Photo by Test Photographer via') !== false && strpos($credited_output, '>Pixabay</a>') !== false, 'Removing attachment captions preserves the plugin\'s Pixabay photo credit.');
+$GLOBALS['wfag_test_media'] = $saved_media;
+unset($GLOBALS['wfag_test_pixabay_credit'][1]);
+WTAI_Media_Index::invalidate();
 check(array_column($report['placements'], 'target_percent') === array(33.3, 66.7, 100.0), 'Three images target thirds of the article.');
 check(array_column($report['placements'], 'actual_percent') === array(33.3, 66.7, 100.0), 'Equal paragraphs receive images at the expected word-count boundaries.');
 check(count(array_unique(array_column($report['placements'], 'id'))) === 3, 'Images do not repeat in the article.');
@@ -111,6 +130,10 @@ check(WTAI_Settings::sanitize('max_images_per_post', 250) === 250, 'Image prefer
 $GLOBALS['wfag_test_media'][10]['missing'] = true;
 $matcher->insert_images($body, array('max_images_per_post' => 3), 'Orchard');
 check($matcher->get_report()['inserted'] === 3 && !in_array(10, array_column($matcher->get_report()['placements'], 'id'), true), 'Unrenderable image attachments are skipped in favor of valid matches.');
+$GLOBALS['wfag_test_media'][11]['crop_failed'] = true;
+unset($GLOBALS['wfag_test_media'][11]['metadata']['sizes']['wtai-article-600x400']);
+$matcher->insert_images($body, array('max_images_per_post' => 3), 'Orchard');
+check($matcher->get_report()['inserted'] === 3 && !in_array(11, array_column($matcher->get_report()['placements'], 'id'), true) && strpos($matcher->get_report()['message'], '600 × 400') !== false, 'A failed exact crop is reported and the image plan is recalculated around valid attachments.');
 $saved_options = $GLOBALS['wfag_test_options'] ?? array();
 $saved_theme_mods = $GLOBALS['wfag_test_theme_mods'] ?? array();
 $photo = array('title' => 'Orchard photo', 'alt' => 'Orchard trees', 'caption' => '', 'description' => '');

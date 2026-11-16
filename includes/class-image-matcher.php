@@ -4,11 +4,17 @@ if (!defined('ABSPATH')) exit;
 
 class WTAI_Image_Matcher {
     private const MIN_IMAGE_WORD_GAP = 100;
+    private const ARTICLE_IMAGE_SIZE = 'wtai-article-600x400';
     private $error_handler;
     private $report = array();
+    private $image_size_warnings = array();
 
     public function __construct($error_handler = null) { $this->error_handler = $error_handler; }
     public function get_report() { return $this->report; }
+
+    public static function register_article_image_size() {
+        add_image_size(self::ARTICLE_IMAGE_SIZE, 600, 400, true);
+    }
 
     /** Transient admin markup only: Google URLs and photo metadata never enter post storage. */
     public function result_thumbnails($content) {
@@ -51,6 +57,7 @@ class WTAI_Image_Matcher {
     public function insert_images($content, $settings, $title = '', $allow_downloads = false) {
         $requested = max(0, (int) ($settings['max_images_per_post'] ?? 3));
         $this->report = array('requested' => $requested, 'inserted' => 0, 'placements' => array(), 'message' => '');
+        $this->image_size_warnings = array();
         if (!$requested || trim($content) === '') return $content;
         if (!class_exists('DOMDocument')) {
             $this->report['message'] = __('PHP DOM is required for image placement. The article was kept without new images.', 'wolf-forge-article-generator');
@@ -139,6 +146,22 @@ class WTAI_Image_Matcher {
                     $web_message = __('Pixabay fallback failed. Available local images were preserved.', 'wolf-forge-article-generator');
                 }
             }
+            do {
+                $retry_plan = false;
+                foreach ($plan as $placement) {
+                    $image_key = $placement['image'];
+                    if (($ranked[$image_key]['source'] ?? '') === 'gbp' || !empty($ranked[$image_key]['article_size_checked'])) continue;
+                    $ranked[$image_key]['article_size_checked'] = true;
+                    $html = $this->article_image_html($ranked[$image_key]['id']);
+                    if ($html === '') {
+                        $ranked[$image_key]['html'] = '';
+                        $retry_plan = true;
+                        continue;
+                    }
+                    $ranked[$image_key]['html'] = $html;
+                }
+                if ($retry_plan) $plan = $this->best_plan($anchors, $ranked, $capacity, $total);
+            } while ($retry_plan && $plan);
             $count = count($plan);
             foreach ($plan as $slot => $placement) {
                 $position = $placement['position'];
@@ -148,22 +171,16 @@ class WTAI_Image_Matcher {
                 list($image_doc, $image_root) = $this->fragment($image['html']);
                 foreach ($image_root->childNodes as $image_node) $figure->appendChild($document->importNode($image_node, true));
                 $is_google = ($image['source'] ?? '') === 'gbp';
-                $caption = $is_google ? '' : get_post_field('post_excerpt', $image['id']);
-                if ($caption !== '') {
-                    $caption_node = $document->createElement('figcaption');
-                    $caption_node->appendChild($document->createTextNode(html_entity_decode(wp_strip_all_tags($caption), ENT_QUOTES | ENT_HTML5, 'UTF-8')));
-                    $figure->appendChild($caption_node);
-                }
                 $credit = $is_google ? null : get_post_meta($image['id'], '_wtai_pixabay_credit', true);
                 if (is_array($credit) && WTAI_Pixabay::allowed_url($credit['page'] ?? '')) {
+                    $credit_node = $document->createElement('figcaption');
+                    $author = sanitize_text_field((string) ($credit['author'] ?? ''));
+                    $credit_node->appendChild($document->createTextNode($author !== '' ? sprintf(__('Photo by %s via ', 'wolf-forge-article-generator'), $author) : __('Photo source: ', 'wolf-forge-article-generator')));
                     $link = $document->createElement('a', 'Pixabay');
                     $link->setAttribute('href', $credit['page']);
                     $link->setAttribute('rel', 'noopener');
-                    $credit_node = $caption !== '' ? $caption_node : $document->createElement('figcaption');
-                    if ($caption !== '') $credit_node->appendChild($document->createTextNode(' '));
-                    $credit_node->appendChild($document->createTextNode(__('Source: ', 'wolf-forge-article-generator')));
                     $credit_node->appendChild($link);
-                    if ($caption === '') $figure->appendChild($credit_node);
+                    $figure->appendChild($credit_node);
                 }
                 $root->insertBefore($figure, $anchors[$position]['node']->nextSibling);
                 $matched = array_intersect_key($anchors[$position]['vector'], $image['vector']);
@@ -178,6 +195,12 @@ class WTAI_Image_Matcher {
             $this->report['inserted'] = $count;
             if ($count < $requested) $this->report['message'] = __('Fewer images were inserted: matching images and safe positions at least 100 words apart are required before Conclusion.', 'wolf-forge-article-generator');
             if ($source === 'gbp' && $count < $requested) $this->report['message'] = __('Fewer Google photos or safe positions at least 100 words apart were available before Conclusion.', 'wolf-forge-article-generator');
+            if ($this->image_size_warnings) {
+                $this->report['message'] = trim($this->report['message'] . ' ' . sprintf(
+                    __('%d matching Media Library image(s) were skipped because a 600 × 400 crop could not be created.', 'wolf-forge-article-generator'),
+                    count($this->image_size_warnings)
+                ));
+            }
             if ($source !== 'media_library') $this->report['message'] = trim($this->report['message'] . ' ' . $google_message . ' ' . __('GBP photos use the profile photo order, without keyword matching. They load live when the article is viewed.', 'wolf-forge-article-generator'));
             $this->report['message'] = trim($this->report['message'] . ' ' . $web_message);
             if (!$count) return $content;
@@ -314,6 +337,41 @@ class WTAI_Image_Matcher {
             $previous = $best['position'];
         }
         return $plan;
+    }
+
+    private function article_image_html($id) {
+        $metadata = wp_get_attachment_metadata($id);
+        $size = is_array($metadata) ? ($metadata['sizes'][self::ARTICLE_IMAGE_SIZE] ?? null) : null;
+        if (!is_array($size) || (int) ($size['width'] ?? 0) !== 600 || (int) ($size['height'] ?? 0) !== 400) {
+            $file = get_attached_file($id);
+            if (!is_string($file) || $file === '' || !is_readable($file)) {
+                $this->image_size_warnings[(int) $id] = true;
+                return '';
+            }
+            if (!function_exists('image_make_intermediate_size')) {
+                require_once ABSPATH . 'wp-admin/includes/image.php';
+            }
+            $size = image_make_intermediate_size($file, 600, 400, true);
+            if (!is_array($size) || (int) ($size['width'] ?? 0) !== 600 || (int) ($size['height'] ?? 0) !== 400) {
+                $this->image_size_warnings[(int) $id] = true;
+                return '';
+            }
+            if (!is_array($metadata)) $metadata = array();
+            if (!isset($metadata['sizes']) || !is_array($metadata['sizes'])) $metadata['sizes'] = array();
+            $metadata['sizes'][self::ARTICLE_IMAGE_SIZE] = $size;
+            if (wp_update_attachment_metadata($id, $metadata) === false) {
+                $this->image_size_warnings[(int) $id] = true;
+                return '';
+            }
+        }
+
+        $url = wp_get_attachment_image_url($id, self::ARTICLE_IMAGE_SIZE);
+        if (!is_string($url) || $url === '') {
+            $this->image_size_warnings[(int) $id] = true;
+            return '';
+        }
+        $alt = get_post_meta($id, '_wp_attachment_image_alt', true);
+        return '<img src="' . esc_url($url) . '" alt="' . esc_attr((string) $alt) . '" class="wp-image-' . absint($id) . ' size-' . esc_attr(self::ARTICLE_IMAGE_SIZE) . '" width="600" height="400" loading="lazy" decoding="async" style="max-width:100%;height:auto">';
     }
 
     private function similarity($left, $right) {

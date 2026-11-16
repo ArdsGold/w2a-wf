@@ -27,7 +27,7 @@ $api_code = 200;
 $hits = array();
 for ($i = 0; $i < 8; $i++) $hits[] = array('id' => $first_id + $i, 'type' => 'photo', 'tags' => "$token forest photography", 'largeImageURL' => 'https://cdn.pixabay.com/photo/test/' . ($first_id + $i) . '.png', 'pageURL' => 'https://pixabay.com/photos/test-' . ($first_id + $i) . '/', 'user' => 'Test photographer');
 $chunk = function ($type, $data) { return pack('N', strlen($data)) . $type . $data . pack('N', crc32($type . $data)); };
-$png = "\x89PNG\r\n\x1a\n" . $chunk('IHDR', pack('NNCCCCC', 640, 320, 8, 2, 0, 0, 0)) . $chunk('IDAT', gzcompress(str_repeat("\0" . str_repeat("\x40\x80\x20", 640), 320))) . $chunk('IEND', '');
+$png = "\x89PNG\r\n\x1a\n" . $chunk('IHDR', pack('NNCCCCC', 640, 480, 8, 2, 0, 0, 0)) . $chunk('IDAT', gzcompress(str_repeat("\0" . str_repeat("\x40\x80\x20", 640), 480))) . $chunk('IEND', '');
 $http = function ($pre, $args, $url) use (&$requests, &$mode, &$api_code, &$hits, $png) {
     if (strpos($url, 'https://pixabay.com/api/?') === 0) {
         parse_str(wp_parse_url($url, PHP_URL_QUERY), $query);

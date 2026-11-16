@@ -86,4 +86,70 @@ $GLOBALS['wfag_test_posts'] = array(1005 => array('title' => 'Emergency Réparat
 $linker->insert_links('<p>Réparation chaudière.</p>', 19, 1);
 check($linker->get_report()['inserted'] === 1, 'Contiguous Unicode title phrases match without transliterating visible anchor text.');
 $GLOBALS['wfag_test_posts'] = $saved_posts;
+$GLOBALS['wfag_test_pages'] = array(
+    30 => array('title' => 'Our Services', 'url' => 'https://example.com/our-services/'),
+    31 => array('title' => 'Drain Cleaning', 'url' => 'https://example.com/services/drain-cleaning/', 'parent' => 30),
+    32 => array('title' => 'Emergency Plumbing', 'url' => 'https://example.com/services/plumbing/emergency/', 'parent' => 31),
+    33 => array('title' => 'Drain Cleaning', 'url' => 'https://example.com/drain-cleaning-page/'),
+    34 => array('title' => 'Draft Plumbing', 'parent' => 30, 'status' => 'draft'),
+ );
+check(array_keys(WTAI_Internal_Linker::service_targets()) === array(31, 32), 'Published Services page descendants are discovered without a menu or text input.');
+$discovery = WTAI_Internal_Linker::service_discovery();
+check($discovery['roots'][0] === array('type' => 'page', 'label' => 'Our Services') && array_keys($discovery['targets']) === array_keys(WTAI_Internal_Linker::service_targets()), 'Page discovery reports its root and exactly the targets used by linking.');
+$service_output = $linker->insert_links('<p>Drain cleaning clears blockages.</p><p>Emergency plumbing helps.</p>', 19, 2);
+$service_ids = array_column($linker->get_report()['placements'], 'id');
+sort($service_ids);
+check($linker->get_report()['service_inserted'] === 2 && $service_ids === array(31, 32), 'Automatically discovered service pages beat identically titled blog posts.');
+$GLOBALS['wfag_test_pages'][31]['title'] = 'Drain-Cleaning Services';
+$linker->insert_links('<p>Drain cleaning service is available.</p>', 19, 1);
+check($linker->get_report()['service_inserted'] === 1, 'Automatic targets retain punctuation and singular/plural phrase matching.');
+$GLOBALS['wfag_test_pages'][40] = array('title' => 'Water Heater Repairs');
+$GLOBALS['wfag_test_pages'][41] = array('title' => 'Heater Installation', 'parent' => 40);
+$GLOBALS['wfag_test_pages'][42] = array('title' => 'Private Repair', 'password' => 'secret');
+$menu_item = function ($id, $parent, $title, $object = 'custom', $object_id = 0, $url = '#') {
+    return (object) array('ID' => $id, 'menu_item_parent' => $parent, 'title' => $title, 'object' => $object, 'object_id' => $object_id, 'url' => $url);
+};
+$GLOBALS['wfag_nav_locations'] = array('primary' => 1);
+$GLOBALS['wfag_nav_menus'][1] = array(
+    $menu_item(100, 0, 'Our Services'),
+    $menu_item(101, 100, 'Heating', 'page', 40),
+    $menu_item(102, 101, 'Emergency', 'page', 32),
+    $menu_item(103, 100, 'Repair guide', 'post', 11),
+    $menu_item(104, 100, 'Private', 'page', 42),
+    $menu_item(105, 100, 'External', 'custom', 0, 'https://elsewhere.test/external/'),
+    $menu_item(106, 0, 'About', 'page', 33),
+);
+$targets = WTAI_Internal_Linker::service_targets();
+check(array_keys($targets) === array(11, 32, 40, 41), 'Menu descendants, nested submenus, blog targets, and page descendants qualify independently of page-parent relationships.');
+$discovery = WTAI_Internal_Linker::service_discovery();
+check($discovery['roots'][0] === array('type' => 'menu', 'label' => 'Our Services') && array_keys($discovery['targets']) === array_keys($targets), 'Menu summary preserves the detection rules and eligible targets.');
+check(!isset($targets[33], $targets[42]), 'Unrelated menu sections and protected targets are excluded.');
+$linker->insert_links('<p>Water heater repairs are available.</p>', 19, 1);
+check($linker->get_report()['placements'][0]['id'] === 40, 'A Services submenu page outranks the matching blog post.');
+$GLOBALS['wfag_nav_menus'][2] = array($menu_item(200, 0, 'Services'), $menu_item(201, 200, 'Drain cleaning', 'page', 31));
+check(!isset(WTAI_Internal_Linker::service_targets()[31]), 'Assigned menus take precedence over unused stored menus.');
+$GLOBALS['wfag_nav_locations']['footer'] = 2;
+check(isset(WTAI_Internal_Linker::service_targets()[31]), 'Services branches across multiple assigned menus are combined.');
+$GLOBALS['wfag_nav_menus'][2][1] = $menu_item(201, 200, 'Drain cleaning', 'custom', 0, '/services/drain-cleaning/');
+check(isset(WTAI_Internal_Linker::service_targets()[31]), 'Same-site relative custom menu links resolve to their published posts/pages.');
+$GLOBALS['wfag_nav_locations'] = array();
+check(isset(WTAI_Internal_Linker::service_targets()[31]), 'Unassigned menus are inspected when no theme location is assigned, supporting Elementor navigation.');
+$GLOBALS['wfag_nav_menus'] = array();
+$GLOBALS['wfag_block_menus'] = array((object) array('post_content' => json_encode(array(
+    array('blockName' => 'core/navigation-submenu', 'attrs' => array('label' => 'Services'), 'innerBlocks' => array(
+        array('blockName' => 'core/navigation-link', 'attrs' => array('label' => 'Heating', 'type' => 'page', 'id' => 40)),
+        array('blockName' => 'core/navigation-submenu', 'attrs' => array('label' => 'More'), 'innerBlocks' => array(
+            array('blockName' => 'core/navigation-link', 'attrs' => array('type' => 'page', 'id' => 32)),
+        )),
+    )),
+))));
+check(array_keys(WTAI_Internal_Linker::service_targets()) === array(32, 40, 41), 'Block navigation detects Services branches, nested entries, and page descendants.');
+$discovery = WTAI_Internal_Linker::service_discovery();
+check($discovery['roots'][0] === array('type' => 'block_menu', 'label' => 'Services') && array_keys($discovery['targets']) === array_keys(WTAI_Internal_Linker::service_targets()), 'Block-menu summary identifies the root without changing the eligible set.');
+unset($GLOBALS['wfag_block_menus'], $GLOBALS['wfag_nav_locations'], $GLOBALS['wfag_nav_menus']);
+$GLOBALS['wfag_test_pages'] = array(30 => array('title' => 'Services'));
+check(WTAI_Internal_Linker::service_targets() === array(), 'An empty Services hierarchy does not prevent imports.');
+$linker->insert_links('<p>Drain cleaning is available.</p>', 19, 1);
+check($linker->get_report()['service_inserted'] === 0 && $linker->get_report()['inserted'] === 1, 'Normal published-blog linking continues when no service targets are found.');
+unset($GLOBALS['wfag_test_pages']);
 unset($GLOBALS['wfag_test_posts'], $GLOBALS['wfag_test_seo_meta'][12], $GLOBALS['wfag_test_seo_meta'][11]);

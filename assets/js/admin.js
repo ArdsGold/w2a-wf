@@ -489,7 +489,9 @@
                 const validation = await this.request(preflight, controller.signal);
                 if (!validation.success) throw new Error(validation.data?.message || wtai_ajax.strings.unknown_error);
                 // Freeze all server-side preferences, including the separate image tab, for this batch.
-                if (validation.data?.settings) fields = Object.entries(validation.data.settings).map(([key, value]) => ['settings[' + key + ']', typeof value === 'boolean' ? (value ? '1' : '0') : String(value)]);
+                if (validation.data?.settings) {
+                    fields = Object.entries(validation.data.settings).map(([key, value]) => ['settings[' + key + ']', typeof value === 'boolean' ? (value ? '1' : '0') : String(value)]);
+                }
                 for (let index = 0; index < files.length; index++) {
                     if (controller.signal.aborted) break;
                     $('#wtai-progress-text').text('Importing ' + (index + 1) + ' of ' + files.length + ': ' + files[index].name);
@@ -521,7 +523,7 @@
                         // A lost connection leaves the current outcome unknown. Stop,
                         // retain the original selection, and let a safe retry reconcile it.
                         if (drive) this.showDriveStatus(error.driveStatus, error.message);
-                        if (error.network || error.driveQuota || (drive && error.code === 'wtai_drive_key')) {
+                        if (error.network || error.stopBatch || error.driveQuota || (drive && error.code === 'wtai_drive_key')) {
                             totals.processed = index + 1;
                             break;
                         }
@@ -581,12 +583,28 @@
                     .done(resolve)
                     .fail((xhr, status) => {
                         const message = xhr.responseJSON?.data?.message;
-                        const error = new Error(message || 'The request did not complete (HTTP ' + xhr.status + '). Retry with the same files and settings.');
-                        error.code = xhr.responseJSON?.data?.code;
+                        const action = data.get('action') || 'unknown';
+                        const step = {
+                            wtai_validate_import: 'Validating import settings',
+                            wtai_save_settings: 'Saving options',
+                            wtai_upload_documents: 'Importing a DOCX document',
+                            wtai_google_drive: data.get('operation') === 'import' ? 'Importing a Google Drive document' : 'Accessing Google Drive',
+                            wtai_preview_images: 'Previewing images',
+                        }[action] || 'Plugin request';
+                        const expiredNonce = xhr.status === 403 && String(xhr.responseText || '').trim() === '-1';
+                        let fallback = 'The request did not complete. Retry with the same files and settings.';
+                        if (expiredNonce) fallback = 'Your WordPress security token has expired. Reload the plugin page and sign in again if required, then select the same documents and retry.';
+                        else if (xhr.status === 403) fallback = 'Access was denied. If signing in and reloading does not resolve it, ask your host or security administrator to check the blocked POST to /wp-admin/admin-ajax.php (action: ' + action + '). Keep your files selected; the batch has stopped.';
+                        else if (xhr.status === 401) fallback = 'Your WordPress login is no longer accepted. Sign in again, reload the plugin page, and retry the same selection.';
+                        const error = new Error(step + ' failed (HTTP ' + xhr.status + '): ' + (message || fallback));
+                        error.code = xhr.responseJSON?.data?.code || (expiredNonce ? 'wtai_nonce_expired' : undefined);
+                        error.httpStatus = xhr.status;
+                        error.action = action;
+                        error.stopBatch = xhr.status === 401 || xhr.status === 403;
                         error.driveQuota = error.code === 'wtai_drive_quota';
                         error.driveStatus = xhr.responseJSON?.data?.drive_status;
                         error.cancelled = status === 'abort';
-                        error.network = !xhr.status || xhr.status >= 502 || xhr.status === 408 || xhr.status === 413 || !xhr.responseJSON;
+                        error.network = !xhr.status || xhr.status >= 502 || xhr.status === 408 || xhr.status === 413 || (!xhr.responseJSON && !error.stopBatch);
                         reject(error);
                     })
                     .always(() => signal?.removeEventListener('abort', abort));
@@ -624,7 +642,7 @@
                     $('<p>', { text: 'Post ID: ' + result.post_id + (result.existing ? ' (existing article reused)' : '') }).appendTo($item);
                     if (result.images) $('<p>', { text: 'Images inserted: ' + result.images.inserted + ' of ' + result.images.requested + (result.images.message ? '. ' + result.images.message : '') }).appendTo($item);
                     if (result.image_previews) $('<div>', { class: 'wtai-result-image-previews', html: result.image_previews }).appendTo($item);
-                    if (result.links) $('<p>', { text: 'Internal links inserted: ' + result.links.inserted + ' of ' + result.links.requested + (result.links.message ? '. ' + result.links.message : '') }).appendTo($item);
+                    if (result.links) $('<p>', { text: 'Internal links inserted: ' + result.links.inserted + ' of ' + result.links.requested + '; service links: ' + Number(result.links.service_inserted || 0) + (result.links.message ? '. ' + result.links.message : '') }).appendTo($item);
                     if (result.warning) $('<p>', { text: result.warning }).appendTo($item);
                     const $meta = $('<div>', { class: 'wtai-result-meta' });
                     $('<span>', { text: 'Status: ' + result.status }).appendTo($meta);

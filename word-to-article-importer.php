@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Wolf Forge Article Generator
  * Description: Import .docx files as WordPress articles with bulk upload, formatting cleanup, scheduling, and optional media matching.
- * Version: r4.0.1
+ * Version: r4.0.2
  * Author: Macky Villafuerte, Arden Guinto
  * License: GPL v2 or later
  * Requires at least: 6.0
@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('WTAI_VERSION', 'r4.0.1');
+define('WTAI_VERSION', 'r4.0.2');
 define('WTAI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('WTAI_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -33,6 +33,7 @@ class Word_To_Article_Importer {
 
     private function __construct() {
         $this->includes();
+        add_action('after_setup_theme', array('WTAI_Image_Matcher', 'register_article_image_size'));
         WTAI_Media_Index::register_hooks();
         add_shortcode('wtai_gbp_photo', array('WTAI_GBP_Photos', 'shortcode'));
         $this->error_handler = new WTAI_Error_Handler();

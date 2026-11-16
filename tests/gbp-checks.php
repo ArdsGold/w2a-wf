@@ -35,6 +35,9 @@ rejects(function () { WTAI_GBP_Photos::profile('https://www.google.com/maps/plac
 unset($GLOBALS['wfag_google_search']);
 $html = WTAI_GBP_Photos::shortcode(array('place' => $profile['id'], 'slot' => 0));
 check(strpos($html, 'https://lh3.googleusercontent.com/places/fresh-image') !== false, 'Live rendering resolves a fresh Google-hosted photo URI.');
+check(strpos($html, 'width="600" height="400"') !== false && strpos($html, 'aspect-ratio:3/2;object-fit:cover') !== false, 'Google photos render in a 600x400 3:2 display frame.');
+$media_requests = array_values(array_filter($GLOBALS['wfag_google_requests'], function ($request) { return strpos($request['url'], '/media?') !== false; }));
+check(count($media_requests) === 1 && strpos($media_requests[0]['url'], 'maxWidthPx=600&maxHeightPx=400') !== false, 'Google photo requests are bounded to 600x400 media.');
 check(strpos($html, 'Photo &amp; Author') !== false && strpos($html, '/maps/contrib/example') !== false && strpos($html, 'google-maps-logo.svg') !== false, 'Photo author attribution, author link, avatar, and official Google Maps logo are rendered.');
 check(strpos($html, $secret) === false && DONOTCACHEPAGE === true, 'Rendered photos disclose no API key and mark the page as non-cacheable.');
 check(WTAI_GBP_Photos::shortcode(array('place' => '../escape', 'slot' => 0)) === '' && WTAI_GBP_Photos::shortcode(array('place' => $profile['id'], 'slot' => 100)) === '', 'Tampered resource IDs and out-of-range photo slots produce no output.');

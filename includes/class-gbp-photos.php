@@ -114,12 +114,12 @@ class WTAI_GBP_Photos {
             $photo = $profile['photos'][(int) $slot] ?? array();
             $name = $photo['name'] ?? '';
             if (!is_string($name) || !preg_match('~^places/' . preg_quote($id, '~') . '/photos/[A-Za-z0-9_-]+$~D', $name)) return '';
-            $media = self::api($name . '/media?maxWidthPx=1200&skipHttpRedirect=true');
+            $media = self::api($name . '/media?maxWidthPx=600&maxHeightPx=400&skipHttpRedirect=true');
             $url = $media['photoUri'] ?? '';
             if (!self::image_url($url)) return '';
             $source = $photo['googleMapsUri'] ?? '';
             if (!is_string($source) || !self::google_link($source)) $source = 'https://www.google.com/maps/search/?api=1&query=business&query_place_id=' . rawurlencode($id);
-            $html = '<a href="' . esc_url($source) . '" target="_blank" rel="noopener"><img class="wtai-gbp-image" loading="lazy" src="' . esc_url($url) . '" alt="' . esc_attr(__('Photo from this Google Business Profile', 'wolf-forge-article-generator')) . '" style="max-width:100%;height:auto"></a>';
+            $html = '<a href="' . esc_url($source) . '" target="_blank" rel="noopener"><img class="wtai-gbp-image" loading="lazy" src="' . esc_url($url) . '" width="600" height="400" alt="' . esc_attr(__('Photo from this Google Business Profile', 'wolf-forge-article-generator')) . '" style="display:block;width:100%;max-width:600px;height:auto;aspect-ratio:3/2;object-fit:cover"></a>';
             $html .= '<span class="wtai-gbp-attribution" style="display:block;padding:10px;background:#fff;color:#1f1f1f;font:14px sans-serif">';
             $html .= '<a href="' . esc_url($source) . '" target="_blank" rel="noopener"><img src="' . esc_url(WTAI_PLUGIN_URL . 'assets/images/google-maps-logo.svg') . '" alt="Google Maps" style="height:18px;width:auto;vertical-align:middle;margin:0 10px 5px 0"></a>';
             foreach (is_array($photo['authorAttributions'] ?? null) ? $photo['authorAttributions'] : array() as $author) {

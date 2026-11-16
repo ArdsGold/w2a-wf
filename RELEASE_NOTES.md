@@ -1,8 +1,12 @@
-# Wolf Forge Article Generator r4.0.1
+# Wolf Forge Article Generator r4.0.2
 
 Release prepared: **2026-10-22 (Asia/Manila)**.
 
 ## Release highlights
+
+- Generate Articles shows a Services Detection card with detected menu/parent labels and an inspection dropdown listing the same eligible children and descendants used by automatic linking. It handles detected, empty, and not-detected states without adding a required setting.
+
+- Identify the failed AJAX step and action in HTTP errors. Distinguish WordPress expired-token responses from generic server 403 pages, retain server JSON permission messages, and stop remaining documents on HTTP 401/403. No automatic retry bypasses an access rejection.
 
 - A background GitHub version check shows a notice above the plugin tabs only when the running version differs from the main-branch plugin header. Matching versions and failed checks stay silent. Successful checks cache for six hours; no automatic update is performed.
 
@@ -11,6 +15,8 @@ Release prepared: **2026-10-22 (Asia/Manila)**.
 - Optional Pixabay fallback finds matching photos during Submit and saves useful matches to Media Library with source credits. Configure its separate key in Settings & Logs, then enable it on Image Media Library. It defaults off, respects image placement rules, caches searches for 24 hours, limits searches/downloads, reuses downloaded photos, and preserves publishing on provider errors.
 
 - Orange Import Results edges highlight generated articles with fewer images or internal links than requested. Complete results remain green and failed imports remain red.
+- Plugin-inserted Media Library/Pixabay images use a cropped 600x400 rendition. Attachment captions/descriptions are not shown in generated articles; alt text and source credits remain. Google photo requests are capped at 600x400.
+- Automatic links detect Services menu branches and prioritize their published submenu targets and page descendants before normal blog posts. No Services text input is required; missing Services sections fall back to blog matching. Classic/Elementor WordPress menus and block navigation are supported.
 
 - Import DOCX files from your computer, or DOCX files and native Google Docs from a public Google Drive folder. Drive offers paged listings, document selection, sequential downloads, credential-source status, and quota-error notices. This version reads files directly in the folder, exports native Google Docs to Word automatically, and excludes subfolders.
 - Use **Cancel** beside Submit to stop the active browser request and remaining local/Drive queue. Completed articles and selected files remain. An interrupted server request may still finish; the results explain how to retry safely.
@@ -19,7 +25,7 @@ Release prepared: **2026-10-22 (Asia/Manila)**.
 - One WordPress sidebar entry contains Generate Articles, Duplicate Blogs, Image Media Library, and Settings & Logs. Tabs switch without reloading and retain the file selection and import state.
 - Named month/year controls, date/range shortcuts, inline validation, and live schedule previews show filenames, date reuse, and past-date warnings. Month/date-range overflow loops back to the first available date.
 - Refactored DOCX imports strip filename numbering, remove the initial document H1, demote later H1s, link supported phone numbers, and recover safely from retries.
-- Native automatic internal linking matches meaningful title phrases and saved Yoast/Rank Math keyphrases, skips ambiguous title fragments, and preserves existing links and protected markup. Destinations are published blog posts only.
+- Native automatic internal linking matches meaningful title phrases and saved Yoast/Rank Math keyphrases, skips ambiguous title fragments, and preserves existing links and protected markup. Published service descendants are prioritized over published blog posts.
 - Yoast receives SEO title, description, and focus keyphrase. Rank Math receives only its focus keyphrase. Plugins Status lists these two SEO plugins plus the last Google Drive API connection result, distinguishing configured keys from verified connectivity and errors.
 - Media Library matching excludes labeled logos/icons/favicons and the WordPress site logo/icon, using metadata and filenames without visual recognition. Unlabeled graphics and unclassified GBP photos cannot be reliably identified by this filter.
 - Media Library, live Google Business Profile photos, or Both share one saved image count. Image controls are synchronized across Generate Articles and Image Media Library. New images require at least 100 article words between positions and stay before Conclusion; fewer are inserted when relevant spaced positions are unavailable.
@@ -27,7 +33,7 @@ Release prepared: **2026-10-22 (Asia/Manila)**.
 
 ## Install or upgrade
 
-Upload **wolf-forge-article-generator-r4.0.1.zip** through WordPress Plugins > Add New > Upload Plugin and replace the existing installation when prompted. The archive retains **w2a-wf/** and **word-to-article-importer.php**. Existing database settings, history, logs, and posts are retained. Reload open plugin admin screens after upgrading.
+Upload **wolf-forge-article-generator-r4.0.2.zip** through WordPress Plugins > Add New > Upload Plugin and replace the existing installation when prompted. The archive retains **w2a-wf/** and **word-to-article-importer.php**. Existing database settings, history, logs, and posts are retained. Reload open plugin admin screens after upgrading.
 
 This release intentionally tracks **config.php** in Git and includes the current configured file unchanged in the installation ZIP. Repository readers and ZIP recipients can read bundled credentials, and installations using the same key share its provider/project quota. Actual key values are not copied into documentation or the commit message. Site-specific overrides remain in the WordPress database. Plugin replacement can overwrite the bundled file; preserve any local edits when preparing upgrades.
 
@@ -45,15 +51,16 @@ AI image recognition, batch AI metadata editing, and physical image-file renamin
 
 ## Validation
 
-- 37 standalone version-checker checks with mocked HTTP for matching/newer/older/invalid versions, prefixes, caching, redirects, bounded requests, and silent failures. The r4.0.0 implementation was live-checked against GitHub before this version bump; publishing matching r4.0.1 versions will keep the notice hidden after the next fresh check.
-- 274 PHP regression checks with PHP 8.5 PclZip/ZipArchive and PHP 8.2 PclZip.
-- 112 WordPress integration checks for scheduling, retries, SEO, native internal linking, media, history, and mocked live-photo rendering.
+- 37 standalone version-checker checks with mocked HTTP for matching/newer/older/invalid versions, prefixes, caching, redirects, bounded requests, and silent failures. The r4.0.0 implementation was live-checked against GitHub before the prior version bump; publishing matching r4.0.2 versions will keep the notice hidden after the next fresh check.
+- Validated locally on 2026-11-11: 305 standalone PHP checks with PHP 8.5 (PclZip/ZipArchive) and PHP 8.2 (PclZip), JavaScript admin checks, and PHP syntax checks. Enabling the existing mysqli/GD CLI extensions allowed the full WordPress suites to run.
+- 126 WordPress integration checks for scheduling, retries, SEO, native internal linking, media, history, and mocked live-photo rendering.
 - 62 Pixabay WordPress integration checks for private credentials, search caching/filtering, real local downloads, attribution, spacing, reuse, import/retry behavior, request limits, unsafe files, and recoverable provider failures. Pixabay HTTP is mocked; live access still needs a real key.
 - 45 Google Drive integration checks for public listing/download/import, credential precedence/privacy, quota errors, authorization/nonces, retries, and temporary-file cleanup. Google HTTP is mocked.
 - 20 isolated private-configuration checks on PHP 8.5 and PHP 8.2, without reading or rewriting the real private configuration.
 - JavaScript checks for queue behavior, autosave, tabs, history/clipboard, Google controls, date previews, cancellation, and safe retries.
+- Real browser Submit/retry with three source images cropped by the web server to 600x400, two service links plus one blog link, phone linking, caption/description preservation in Media Library, Conclusion placement, and rendered thumbnails. Temporary content/settings are cleaned up. Ui.Vision also verified no-reload tab navigation and batch-input preservation.
 - Browser checks for hidden matching/unavailable version checks, visible newer/older mismatches, thumbnail counts, full-image new-tab navigation, mobile wrapping, Pixabay key save/remove, fallback autosave/reset, Drive selection, quota pause, key overrides, retained selections across tabs/retries, local/Drive/preflight cancellation, reset defaults, and mobile layout. Earlier checks cover detailed schedule controls, clipboard behavior, and the admin icon.
 - Live public-folder listing and four Google Docs exports/parser checks without creating posts.
 - PHP/JavaScript syntax, documentation links/anchors, whitespace, ZIP CRC, and source-byte verification.
 
-Live public-folder verification found four native Google Docs and exported/parsed all four successfully without creating posts. Automated checks continue to mock Google responses. Prepared for the r4.0.1 repository commit and installation ZIP. No hosted GitHub release is created by the plugin checker.
+Live public-folder verification found four native Google Docs and exported/parsed all four successfully without creating posts. Automated checks continue to mock Google responses. Prepared for the r4.0.2 repository commit and installation ZIP. No hosted GitHub release is created by the plugin checker.

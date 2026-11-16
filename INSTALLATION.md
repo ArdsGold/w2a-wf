@@ -1,10 +1,10 @@
 # Install or upgrade Wolf Forge Article Generator
 
-Release: **r4.0.1** - package prepared **2026-10-22 (Asia/Manila)**. See [release notes](RELEASE_NOTES.md).
+Release: **r4.0.2** - package prepared **2026-10-22 (Asia/Manila)**. See [release notes](RELEASE_NOTES.md).
 
 ## Existing w2a-wf installation
 
-For the packaged release, upload `wolf-forge-article-generator-r4.0.1.zip` through **Plugins > Add New > Upload Plugin** and choose the WordPress replacement option when prompted. Back up the plugin directory and database first. The ZIP keeps the `w2a-wf` folder so WordPress updates the existing installation.
+For the packaged release, upload `wolf-forge-article-generator-r4.0.2.zip` through **Plugins > Add New > Upload Plugin** and choose the WordPress replacement option when prompted. Back up the plugin directory and database first. The ZIP keeps the `w2a-wf` folder so WordPress updates the existing installation.
 
 Update the files in the existing `wp-content/plugins/w2a-wf` directory. Keep the directory and `word-to-article-importer.php` entry filename so WordPress preserves activation. This project has already been updated in place.
 
@@ -26,7 +26,7 @@ Preferences now use autosave without a Save Options button. Wait for **Options s
 
 ## New installation
 
-1. Use the prepared `wolf-forge-article-generator-r4.0.1.zip`, or package the `w2a-wf` folder as a ZIP, omitting `.git`, tests, and local development artifacts.
+1. Use the prepared `wolf-forge-article-generator-r4.0.2.zip`, or package the `w2a-wf` folder as a ZIP, omitting `.git`, tests, and local development artifacts.
 2. In WordPress, open **Plugins > Add New > Upload Plugin** and select the ZIP, or copy the folder directly into `wp-content/plugins/`.
 3. Activate **Wolf Forge Article Generator**.
 4. Open **Wolf Forge Articles** and choose publishing/formatting preferences on **Generate Articles** and optional image insertion/count on either **Generate Articles** or **Image Media Library**. The checkbox and count stay synchronized; choose the image source in Image Media Library. Changes save automatically; wait for "Options saved." before leaving.

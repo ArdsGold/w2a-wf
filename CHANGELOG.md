@@ -1,5 +1,13 @@
 # Changelog
 
+## r4.0.2 - 2026-10-22
+
+- Show Services detection status, detected menu/parent labels, and an optional alphabetical children/descendants dropdown on Generate Articles. Reuse the linker discovery results without changing priority rules or requiring a selection.
+
+- Generate inserted Media Library and Pixabay images from an exact cropped 600x400 rendition, retaining alt text and source attribution while omitting attachment captions/descriptions from article markup. Request Google-hosted photos at up to 600x400.
+- Automatically discover Services branches in classic/Elementor WordPress menus and block navigation. Prioritize published submenu targets and their page descendants before blog posts. Remove the manual Services parent-title input and preflight requirement; fall back to Services page descendants or normal blog links when no menu targets exist.
+- Add regression and integration coverage for crop generation, metadata preservation, automatic menu discovery, service-first links, and bounded Google photo dimensions. The standalone PHP and JavaScript checks pass.
+
 ## r4.0.1 - 2026-10-22
 
 - Add an administrator-only GitHub version check against the main-branch plugin header. A notice appears only for a valid version mismatch; checks are asynchronous, cached, bounded, and silent on failure, with no code downloads or automatic updates.

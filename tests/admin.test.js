@@ -104,6 +104,17 @@ async function main() {
     assert.equal(latest.processed, 3);
     assert.equal(subject.importing, false);
 
+    subject.settingsFields = () => [['settings[max_internal_links_per_post]', '2']];
+    const serviceBatch = [];
+    subject.request = async data => {
+        serviceBatch.push(data);
+        return { success: true, data: { settings: { max_internal_links_per_post: 2 }, post_id: serviceBatch.length } };
+    };
+    await subject.handleImport(event);
+    assert.equal(serviceBatch.length, 4, 'Enabled internal links import without manual Services input.');
+    assert(serviceBatch.every(data => !data.get('service_page_parent_title') && !data.get('service_parent_id')), 'No manual menu selection is sent in the batch.');
+    subject.settingsFields = () => fields.filter(([name]) => name.startsWith('settings['));
+
     const frozen = [];
     subject.request = async data => {
         if (data.get('action') === 'wtai_validate_import') return { success: true, data: { settings: { publish_schedule: 'specific_date', auto_insert_images: true, max_images_per_post: 12 } } };
@@ -230,6 +241,38 @@ async function main() {
     assert.equal(aborts, 1, 'The active jQuery upload is actually aborted.');
     await assert.rejects(request.call(subject, new FormDataDouble(), abortController.signal), error => error.cancelled === true);
     assert.equal(aborts, 1, 'Already-cancelled requests do not start another upload.');
+
+    const failedRequest = async (xhr, action = 'wtai_validate_import') => {
+        jquery.ajax = () => {
+            const handle = { done() { return handle; }, fail(callback) { setImmediate(() => callback(xhr, 'error')); return handle; }, always() { return handle; } };
+            return handle;
+        };
+        const data = new FormDataDouble();
+        data.append('action', action);
+        try { await request.call(subject, data); } catch (error) { return error; }
+        throw new Error('The simulated HTTP failure must reject.');
+    };
+    const serverBlocked = await failedRequest({ status: 403, responseText: '<html>Apache 403 private upstream details</html>' });
+    assert(serverBlocked.message.includes('Validating import settings failed (HTTP 403)'));
+    assert(serverBlocked.message.includes('action: wtai_validate_import') && serverBlocked.message.includes('/wp-admin/admin-ajax.php'));
+    assert(!serverBlocked.message.includes('private upstream details'), 'Server HTML is never reflected into the user-facing error.');
+    assert(serverBlocked.stopBatch && !serverBlocked.network, 'A server 403 stops the batch without treating it as a lost network request.');
+    const expired = await failedRequest({ status: 403, responseText: ' -1\n' });
+    assert.equal(expired.code, 'wtai_nonce_expired');
+    assert(expired.message.includes('security token has expired'), 'WordPress nonce rejection has specific recovery instructions.');
+    const forbidden = await failedRequest({ status: 403, responseJSON: { data: { message: 'Permission denied.' } } }, 'wtai_upload_documents');
+    assert(forbidden.stopBatch && forbidden.message.includes('Importing a DOCX document') && forbidden.message.includes('Permission denied.'));
+    const loginExpired = await failedRequest({ status: 401 });
+    assert(loginExpired.stopBatch && loginExpired.message.includes('login is no longer accepted'));
+    calls = 0;
+    subject.request = async data => {
+        calls++;
+        if (data.get('action') === 'wtai_validate_import') return { success: true };
+        throw forbidden;
+    };
+    await subject.handleImport(event);
+    assert.equal(calls, 2, 'A permission rejection during upload stops remaining documents after the first failure.');
+    assert.equal(input.files, files, 'Blocked requests preserve the selected files.');
 
     input.files = [{ name: 'invalid.doc', size: 100 }];
     calls = 0;
@@ -437,7 +480,7 @@ async function main() {
     context.setTimeout = originalSetTimeout;
     context.clearTimeout = originalClearTimeout;
     const resultCases = [
-        { images: { inserted: 1, requested: 3 }, links: { inserted: 5, requested: 5 }, image_previews: '<ul class="wtai-result-images"><li>Image preview</li></ul>' },
+        { images: { inserted: 1, requested: 3 }, links: { inserted: 5, requested: 5, service_inserted: 2 }, image_previews: '<ul class="wtai-result-images"><li>Image preview</li></ul>' },
         { images: { inserted: 3, requested: 3 }, links: { inserted: 3, requested: 5 } },
         { images: { inserted: 0, requested: 3 }, links: { inserted: 4, requested: 5 } },
         { images: { inserted: 3, requested: 3 }, links: { inserted: 5, requested: 5 } },
@@ -454,6 +497,7 @@ async function main() {
     ], 'Short image/link counts are orange warnings; complete, disabled, and legacy reports remain green, and failures remain red.');
     assert.equal(createdElements.filter(item => item.class === 'wtai-result-image-previews').length, 1, 'Only articles with thumbnail markup receive an image preview row.');
     assert.equal(createdElements.find(item => item.class === 'wtai-result-image-previews').html, resultCases[0].image_previews, 'Result cards display the server-generated thumbnails.');
+    assert(createdElements.some(item => item.text?.includes('service links: 2')), 'Import results show how many links target service pages.');
     createdElements.length = 0;
     subject.request = async () => ({ success: true, data: { mismatch: false, installed: 'r4.0.0', repository: 'r4.0.0' } });
     await subject.checkVersion();

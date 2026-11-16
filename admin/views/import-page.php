@@ -57,9 +57,10 @@ $categories = get_categories(array('hide_empty' => false, 'orderby' => 'name'));
                         <h3><?php _e('Content Processing', 'wolf-forge-article-generator'); ?></h3>
                         <div class="wtai-form-group">
                             <label for="wtai-max-internal-links"><?php _e('Maximum internal links per article', 'wolf-forge-article-generator'); ?></label>
-                            <input type="number" min="0" step="1" name="settings[max_internal_links_per_post]" id="wtai-max-internal-links" value="<?php echo esc_attr($settings['max_internal_links_per_post']); ?>" />
-                            <p class="description"><?php _e('0 disables automatic internal linking. Link to published blog posts using meaningful phrases from their titles or saved SEO keyphrases. Longer phrases take priority; ambiguous title fragments are skipped. Fewer links are added when relevant matches are unavailable.', 'wolf-forge-article-generator'); ?></p>
+                            <input type="number" min="0" step="1" name="settings[max_internal_links_per_post]" id="wtai-max-internal-links" value="<?php echo esc_attr($settings['max_internal_links_per_post']); ?>">
+                            <p class="description"><?php _e('0 disables automatic internal linking. Relevant Services menu targets take priority over normal blog posts. Fewer links are added when suitable matches are unavailable.', 'wolf-forge-article-generator'); ?></p>
                         </div>
+                        <p class="description"><?php _e('Services menu branches are detected automatically. Relevant submenu targets and their published page descendants take priority over blog posts. If no menu targets are found, published Services page descendants are used; otherwise normal blog matching continues.', 'wolf-forge-article-generator'); ?></p>
                         <div class="wtai-form-group">
                             <label><input type="checkbox" name="settings[auto_link_phone_numbers]" id="wtai-auto-phone-links" <?php checked($settings['auto_link_phone_numbers']); ?> /> <?php _e('Automatically link phone numbers', 'wolf-forge-article-generator'); ?></label>
                             <p class="description"><?php _e('Enabled by default. Link international numbers beginning with + or 00 and formatted US/Canadian numbers such as (216) 399-7569, preserve displayed text and prefix, and remove separators from the tel: destination. Existing links are left unchanged.', 'wolf-forge-article-generator'); ?></p>
@@ -200,6 +201,7 @@ $categories = get_categories(array('hide_empty' => false, 'orderby' => 'name'));
         <!-- Sidebar -->
         <div class="wtai-sidebar">
             <?php require WTAI_PLUGIN_DIR . 'admin/views/plugins-status.php'; ?>
+            <?php require WTAI_PLUGIN_DIR . 'admin/views/services-status.php'; ?>
             <div class="wtai-card">
                 <h3><?php _e('Quick Guide', 'wolf-forge-article-generator'); ?></h3>
                 <ol>

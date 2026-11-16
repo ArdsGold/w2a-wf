@@ -24,6 +24,7 @@ window.testCopyText = await items[0].data['text/plain'].text();
         errors=[]
         page.on('pageerror',lambda error:errors.append(str(error)))
         quota=[True]
+        denied_validation=[None]
         version_mode=['matching']
         imports=[]
         cancel_mode=[None]
@@ -45,6 +46,8 @@ window.testCopyText = await items[0].data['text/plain'].text();
                     return route.fulfill(status=503,json={'success':False,'data':{'message':'Version check unavailable'}})
                 remote={'matching':state['version'],'newer':'r4.1.0','older':'r3.9.0'}[version_mode[0]]
                 return route.fulfill(json={'success':True,'data':{'mismatch':remote!=state['version'],'installed':state['version'],'repository':remote}})
+            if value('action')=='wtai_validate_import' and not value('preview') and denied_validation[0]:
+                return route.fulfill(status=403,content_type='text/html',body='-1' if denied_validation[0]=='nonce' else '<html>Apache 403 Forbidden</html>')
             if value('action')=='wtai_get_import_history':
                 return route.fulfill(json={'success':True,'data':{'history':[{'status':'completed','post_id':321,'post_title':'Clipboard test article','original_filename':'clipboard.docx','view_url':'https://example.test/clipboard/','edit_url':'','can_trash':False}]}})
             if (cancel_mode[0]=='local' and value('action')=='wtai_upload_documents') or (cancel_mode[0]=='preflight' and value('action')=='wtai_validate_import' and not value('preview')):
@@ -107,6 +110,7 @@ window.testCopyText = await items[0].data['text/plain'].text();
         page.wait_for_function("document.querySelector('#wtai-drive-key-status').textContent.includes('override')")
         page.on('dialog',lambda dialog:dialog.accept())
         page.locator('#wtai-reset-settings').click()
+        page.wait_for_function("Array.from(document.querySelectorAll('[data-wtai-options-status]')).some(el => el.textContent === 'Options reset and saved.')")
         page.wait_for_function("document.querySelector('#wtai-max-internal-links').value === '5'")
         for selector in ['#wtai-auto-phone-links','#wtai-convert-lists','#wtai-unbold-text','#wtai-generate-auto-images','#wtai-auto-images']:
             assert page.locator(selector).is_checked(),selector
@@ -115,6 +119,7 @@ window.testCopyText = await items[0].data['text/plain'].text();
         assert page.locator('#wtai-cancel-import').is_disabled(),'Reset leaves Cancel disabled when idle'
         assert 'override' in page.locator('#wtai-drive-key-status').inner_text()
         page.locator('.wtai-tabs a').first.click()
+        assert page.locator('#wtai-service-parent-title').count()==0,'Services input has been replaced by automatic discovery'
         page.locator('#wtai-document-source').select_option('drive')
         assert not page.locator('#wtai-local-upload').is_visible()
         page.locator('#wtai-drive-folder').fill('https://drive.google.com/drive/folders/BrowserPublicFolder123')
@@ -126,6 +131,17 @@ window.testCopyText = await items[0].data['text/plain'].text();
         assert 'Google Doc; exports to Word' in page.locator('#wtai-drive-files').inner_text()
         page.locator('#wtai-publish-schedule').select_option('immediate')
         page.wait_for_function("Array.from(document.querySelectorAll('[data-wtai-options-status]')).some(x=>x.textContent === 'Options saved.')")
+        for denial in ['server','nonce']:
+            denied_validation[0]=denial
+            with page.expect_event('dialog') as blocked_dialog:
+                page.locator('#wtai-import-form button[type=submit]').click()
+            text=blocked_dialog.value.message
+            assert 'Validating import settings failed (HTTP 403)' in text,text
+            assert ('action: wtai_validate_import' in text) if denial=='server' else ('security token has expired' in text)
+            page.wait_for_function("!document.querySelector('#wtai-import-form button[type=submit]').disabled")
+            assert not imports,'Rejected validation must not send documents'
+            assert page.locator('#wtai-drive-files input:checked').count()==3
+        denied_validation[0]=None
         page.locator('#wtai-import-form button[type=submit]').click()
         page.wait_for_function("document.querySelector('#wtai-drive-status').textContent.includes('quota reached')")
         page.wait_for_function("!document.querySelector('#wtai-import-form button[type=submit]').disabled")
@@ -196,6 +212,6 @@ window.testCopyText = await items[0].data['text/plain'].text();
         assert page.locator('#wtai-drive-folder').is_disabled(),'Hidden invalid URL must not block local submissions'
         assert not errors,errors
         browser.close()
-    print('PASS: browser mismatch-only version notices, result thumbnails/full-image clicks/mobile wrapping, Pixabay key save/remove, fallback autosave/reset, Drive selection, shared Copy All Imports buttons, quota pause, key override, retained tabs/retry, upload/Drive/preflight cancellation, first-launch reset, and mobile checks. Initial server key source: '+state['source'])
+    print('PASS: browser server/nonce 403 diagnostics and stopped batches, mismatch-only version notices, result thumbnails/full-image clicks/mobile wrapping, Pixabay key save/remove, fallback autosave/reset, Drive selection, shared Copy All Imports buttons, quota pause, key override, retained tabs/retry, upload/Drive/preflight cancellation, first-launch reset, and mobile checks. Initial server key source: '+state['source'])
 finally:
     php(r"""require 'wp-load.php'; $state=json_decode(stream_get_contents(STDIN),true); foreach($state['options'] as $name=>$value) { if($value===null) delete_option('wtai_'.$name); else update_option('wtai_'.$name,$value); } WP_Session_Tokens::get_instance($state['id'])->destroy($state['token']); foreach(array('browser-test-drive-override-a-12345','browser-test-drive-override-b-12345') as $key) delete_transient('wtai_drive_'.substr(hash('sha256',$key),0,24));""",json.dumps(state))

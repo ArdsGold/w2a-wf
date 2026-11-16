@@ -25,6 +25,8 @@ add_action('save_post', $capture, 10, 2);
 $fail_history = null;
 $fail_publish = null;
 $google_http = null;
+$service_menu = 0;
+$service_menu_filter = null;
 $original_options = array();
 foreach (WTAI_Settings::defaults() as $key => $default) {
     $original_options[$key] = get_option('wtai_' . $key, null);
@@ -181,18 +183,30 @@ try {
 
     $image_ids = array();
     foreach (array('forest', 'ocean') as $word) {
-        $image_id = wp_insert_attachment(array('post_title' => $token . ' ' . $word, 'post_status' => 'inherit', 'post_mime_type' => 'image/jpeg'));
+        $pixels = imagecreatetruecolor(1200, 800);
+        ob_start();
+        imagejpeg($pixels);
+        $upload = wp_upload_bits($token . '-' . $word . '.jpg', null, ob_get_clean());
+        if ($upload['error']) throw new RuntimeException('Could not create the temporary media fixture.');
+        $paths[] = $upload['file'];
+        $image_id = wp_insert_attachment(array('post_title' => $token . ' ' . $word, 'post_status' => 'inherit', 'post_mime_type' => 'image/jpeg'), $upload['file']);
         $ids[$image_id] = $image_id;
         $image_ids[] = $image_id;
         update_post_meta($image_id, '_wp_attachment_image_alt', $token . ' ' . $word);
-        update_post_meta($image_id, '_wp_attached_file', 'wfag-tests/' . $token . '-' . $word . '.jpg');
-        update_post_meta($image_id, '_wp_attachment_metadata', array('width' => 1200, 'height' => 800, 'file' => 'wfag-tests/' . $token . '-' . $word . '.jpg', 'sizes' => array()));
+        update_post_meta($image_id, '_wp_attachment_metadata', array('width' => 1200, 'height' => 800, 'file' => _wp_relative_upload_path($upload['file']), 'sizes' => array()));
     }
     $matcher = new WTAI_Image_Matcher();
     $images = $matcher->insert_images('<p>' . str_repeat($token . ' forest. ', 50) . '</p><p>' . str_repeat($token . ' ocean. ', 50) . '</p>', array('max_images_per_post' => 2), $token);
     verify(substr_count($images, '<figure') === 2, 'Contextual titles and alt text find real media rows.');
     verify(preg_match('~</p>\s*<figure.*?</figure>\s*<p>.*?</p>\s*<figure~s', $images) === 1, 'Native images are distributed across safe paragraph boundaries.');
     verify(strpos($images, 'width="') !== false && strpos($images, 'height="') !== false, 'Native WordPress image dimensions are preserved.');
+    verify(substr_count($images, 'width="600" height="400"') === 2, 'Real media files generate exact 600x400 article renditions.');
+    foreach ($image_ids as $image_id) {
+        $crop = wp_get_attachment_metadata($image_id)['sizes']['wtai-article-600x400'];
+        $crop_file = dirname(get_attached_file($image_id)) . '/' . $crop['file'];
+        $dimensions = getimagesize($crop_file);
+        verify($dimensions[0] === 600 && $dimensions[1] === 400, 'The stored crop has actual 600x400 pixels, not only HTML dimensions.');
+    }
     $thumbnails = $matcher->result_thumbnails($images . '<figure><img src="https://example.test/unrelated.png"></figure>');
     verify(substr_count($thumbnails, 'class="wtai-result-thumbnail"') === 2 && substr_count($thumbnails, '<li>') === 2, 'Result thumbnails show only images inserted by the plugin, in article order.');
     verify(strpos($thumbnails, esc_url(wp_get_attachment_image_url($image_ids[0], 'full'))) !== false && substr_count($thumbnails, 'target="_blank"') === 2, 'Native thumbnails open the full attachment image in a new tab.');
@@ -258,6 +272,7 @@ try {
     $tab_dom = new DOMDocument();
     @$tab_dom->loadHTML($duplicate_html);
     $tab_xpath = new DOMXPath($tab_dom);
+    verify($tab_xpath->query('//input[@id="wtai-max-internal-links"]')->length === 1 && $tab_xpath->query('//input[@id="wtai-service-parent-title"]')->length === 0, 'The link maximum remains available while manual Services input is removed.');
     verify($tab_xpath->query('//select[@id="wtai-month-number"]/option')->length === 13 && $tab_xpath->query('//input[@type="month"]')->length === 0, 'Month selection renders named native options instead of browser-dependent month inputs.');
     verify($tab_xpath->query('//input[@id="wtai-schedule-month" and @type="hidden"]')->length === 1 && $tab_xpath->query('//input[@id="wtai-month-year" and @type="number"]')->length === 1, 'The separate year field preserves the existing canonical month preference.');
     verify($tab_xpath->query('//*[@id="wtai-schedule-preview" and @role="status"]')->length === 1, 'The schedule preview has an accessible live status region.');
@@ -305,6 +320,65 @@ try {
     verify(strpos($link_body, esc_url(get_permalink($link_targets['page only']))) === false && strpos($link_body, esc_url(get_permalink($link_targets['password only']))) === false && strpos($link_body, esc_url(get_permalink($link_targets['future only']))) === false, 'Imported content never links to pages, protected posts, or future posts.');
     $link_retry = $importer->import($link_file, $link_settings, $link_date);
     verify($link_retry['existing'] && $link_retry['post_id'] === $link_result['post_id'] && get_post_field('post_content', $link_result['post_id']) === $link_body, 'Identical retries reuse the linked article without adding duplicate links.');
+    $services_parent = wp_insert_post(array('post_title' => $token . ' Services', 'post_type' => 'page', 'post_status' => 'publish'));
+    $service_drain = wp_insert_post(array('post_title' => 'Emergency ' . $token . ' drain cleaning in Cleveland', 'post_type' => 'page', 'post_status' => 'publish', 'post_parent' => $services_parent));
+    $service_plumbing = wp_insert_post(array('post_title' => $token . ' emergency plumbing', 'post_type' => 'page', 'post_status' => 'publish', 'post_parent' => $service_drain));
+    $service_menu = wp_create_nav_menu($token . ' test menu');
+    $menu_root = wp_update_nav_menu_item($service_menu, 0, array('menu-item-title' => 'Our Services', 'menu-item-url' => '#', 'menu-item-type' => 'custom', 'menu-item-status' => 'publish'));
+    $menu_child = wp_update_nav_menu_item($service_menu, 0, array('menu-item-title' => 'Drain Cleaning', 'menu-item-type' => 'post_type', 'menu-item-object' => 'page', 'menu-item-object-id' => $service_drain, 'menu-item-parent-id' => $menu_root, 'menu-item-status' => 'publish'));
+    wp_update_nav_menu_item($service_menu, 0, array('menu-item-title' => 'Plumbing', 'menu-item-type' => 'post_type', 'menu-item-object' => 'page', 'menu-item-object-id' => $service_plumbing, 'menu-item-parent-id' => $menu_child, 'menu-item-status' => 'publish'));
+    $service_menu_filter = function () use (&$service_menu) { return array('wtai_test' => $service_menu); };
+    add_filter('theme_mod_nav_menu_locations', $service_menu_filter);
+    verify(isset(WTAI_Internal_Linker::service_targets()[$service_plumbing]), 'Real WordPress Services menus and nested submenu targets are detected automatically.');
+    wp_update_nav_menu_item($service_menu, $menu_root, array('menu-item-title' => 'Our Services <strong>A & B</strong>', 'menu-item-url' => '#', 'menu-item-type' => 'custom', 'menu-item-status' => 'publish'));
+    ob_start();
+    require WTAI_PLUGIN_DIR . 'admin/views/services-status.php';
+    $service_status_html = ob_get_clean();
+    $service_dom = new DOMDocument();
+    @$service_dom->loadHTML($service_status_html);
+    $service_xpath = new DOMXPath($service_dom);
+    verify(strpos($service_status_html, 'Services detected') !== false && strpos($service_status_html, 'A &amp; B') !== false && strpos($service_status_html, '<strong>A') === false, 'Dashboard status shows detected roots with escaped labels.');
+    $service_dropdown = $service_xpath->query('//select[@id="wtai-service-descendants"]')->item(0);
+    verify($service_dropdown && !$service_dropdown->hasAttribute('name') && !$service_dropdown->hasAttribute('required') && !$service_dropdown->hasAttribute('disabled'), 'The Services dropdown is optional, does not save a selection, and remains usable.');
+    $listed_services = array();
+    foreach ($service_xpath->query('//select[@id="wtai-service-descendants"]/option[@value!=""]') as $option) $listed_services[] = (int) $option->getAttribute('value');
+    sort($listed_services);
+    $expected_services = array_keys(WTAI_Internal_Linker::service_targets());
+    sort($expected_services);
+    verify($listed_services === $expected_services, 'The dashboard dropdown lists exactly the linker-eligible children and descendants.');
+    $hide_menu_items = function () { return array(); };
+    $only_service_root = function () use ($services_parent) { return array(get_post($services_parent)); };
+    $hide_block_menus = function ($posts, $query) { return $query->get('post_type') === 'wp_navigation' ? array() : $posts; };
+    add_filter('wp_get_nav_menu_items', $hide_menu_items);
+    add_filter('get_pages', $only_service_root);
+    add_filter('posts_pre_query', $hide_block_menus, 10, 2);
+    try {
+        ob_start();
+        require WTAI_PLUGIN_DIR . 'admin/views/services-status.php';
+        $empty_services_html = ob_get_clean();
+        verify(strpos($empty_services_html, 'Services detected') !== false && strpos($empty_services_html, 'No eligible children or descendants found') !== false && strpos($empty_services_html, 'disabled=') !== false, 'An empty Services parent is reported as detected with no eligible descendants.');
+        remove_filter('get_pages', $only_service_root);
+        add_filter('get_pages', $hide_menu_items);
+        ob_start();
+        require WTAI_PLUGIN_DIR . 'admin/views/services-status.php';
+        $missing_services_html = ob_get_clean();
+        verify(strpos($missing_services_html, 'No Services menu item or parent page detected') !== false && strpos($missing_services_html, 'disabled=') !== false, 'A missing Services section has explicit status and an empty disabled dropdown.');
+    } finally {
+        remove_filter('wp_get_nav_menu_items', $hide_menu_items);
+        remove_filter('get_pages', $only_service_root);
+        remove_filter('get_pages', $hide_menu_items);
+        remove_filter('posts_pre_query', $hide_block_menus);
+    }
+    $service_xml = '<w:p><w:r><w:t>Read about ' . $token . ' drain cleaning today.</w:t></w:r></w:p><w:p><w:r><w:t>Read about ' . $token . ' emergency plumbing today.</w:t></w:r></w:p>';
+    $paths[] = $service_path = wfag_test_archive(wfag_test_document($service_xml));
+    $service_settings = $link_settings;
+    $service_result = $importer->import(array('name' => $token . '-service-links.docx', 'tmp_name' => $service_path), $service_settings, $link_date);
+    $service_body = get_post_field('post_content', $service_result['post_id']);
+    verify($service_result['links']['service_inserted'] === 2, 'Real DOCX imports prioritize direct and nested service-page links.');
+    $block_page = wp_insert_post(array('post_title' => $token . ' chimney cleaning', 'post_type' => 'page', 'post_status' => 'publish'));
+    wp_insert_post(array('post_title' => $token . ' block navigation', 'post_type' => 'wp_navigation', 'post_status' => 'publish', 'post_content' => '<!-- wp:navigation-submenu {"label":"Services"} --><!-- wp:navigation-link {"type":"page","id":' . $block_page . ',"label":"Chimney Cleaning"} /--><!-- /wp:navigation-submenu -->'));
+    verify(isset(WTAI_Internal_Linker::service_targets()[$block_page]), 'Published WordPress block navigation resolves Services submenu pages using real parse_blocks.');
+    verify(strpos($service_body, esc_url(get_permalink($service_drain))) !== false && strpos($service_body, esc_url(get_permalink($service_plumbing))) !== false, 'Saved article anchors point to the selected Services hierarchy instead of matching blog posts.');
     $link_settings['max_internal_links_per_post'] = 0;
     $unlinked_result = $importer->import($link_file, $link_settings, $link_date);
     verify($unlinked_result['post_id'] !== $link_result['post_id'] && strpos(get_post_field('post_content', $unlinked_result['post_id']), '<a ') === false, 'A zero maximum disables insertion and has a distinct identity from enabled linking.');
@@ -319,10 +393,14 @@ try {
     $google_place = 'ChIJ' . $token;
     $google_key = 'wfag-test-not-a-real-google-key-1234';
     $google_requests = 0;
-    $google_http = function ($preempt, $args, $url) use ($google_place, &$google_requests) {
+    $google_media_urls = array();
+    $google_http = function ($preempt, $args, $url) use ($google_place, &$google_requests, &$google_media_urls) {
         if (strpos($url, 'https://places.googleapis.com/v1/') !== 0) return $preempt;
         $google_requests++;
-        if (strpos($url, '/media?') !== false) $payload = array('photoUri' => 'https://lh3.googleusercontent.com/places/wfag-test-photo');
+        if (strpos($url, '/media?') !== false) {
+            $google_media_urls[] = $url;
+            $payload = array('photoUri' => 'https://lh3.googleusercontent.com/places/wfag-test-photo');
+        }
         else {
             $photos = array();
             for ($slot = 0; $slot < 3; $slot++) $photos[] = array('name' => 'places/' . $google_place . '/photos/test' . $slot, 'googleMapsUri' => 'https://www.google.com/maps/photo/test', 'authorAttributions' => array(array('displayName' => 'Test photographer', 'uri' => 'https://www.google.com/maps/contrib/test')));
@@ -342,6 +420,7 @@ try {
     $google_post = $google_result['post_id'];
     $google_body = get_post_field('post_content', $google_post);
     verify($google_result['images']['inserted'] === 3 && substr_count($google_body, '[wtai_gbp_photo ') === 3, 'Real DOCX-to-WordPress imports preserve three live GBP shortcode slots.');
+    verify(count($google_media_urls) === 3 && count(array_filter($google_media_urls, function ($url) { return strpos($url, 'maxWidthPx=600&maxHeightPx=400') !== false; })) === 3, 'Google photo requests are bounded to 600x400 media.');
     verify(substr_count($google_result['image_previews'], 'class="wtai-gbp-image"') === 3 && strpos($google_result['image_previews'], 'Test photographer') !== false && strpos($google_result['image_previews'], 'google-maps-logo.svg') !== false, 'GBP result thumbnails include live images and Google/photographer attribution.');
     verify(preg_match('~<a[^>]+href="https://lh3\.googleusercontent\.com/[^\"]+"[^>]+target="_blank"~', $google_result['image_previews']) === 1 && strpos($google_result['image_previews'], $google_key) === false, 'GBP thumbnail links open the full live photo without exposing API credentials.');
     $google_retry = $importer->import(array('name' => $token . '-google-photos.docx', 'tmp_name' => $google_path), $google_settings, WTAI_Scheduler::calculate($google_settings, 1)[0]);
@@ -383,6 +462,8 @@ try {
 
     echo 'PASS: ' . $checks . " WordPress integration checks.\n";
 } finally {
+    if ($service_menu_filter) remove_filter('theme_mod_nav_menu_locations', $service_menu_filter);
+    if ($service_menu) wp_delete_nav_menu($service_menu);
     if ($google_http) remove_filter('pre_http_request', $google_http, 10);
     if ($fail_history) remove_filter('query', $fail_history);
     if ($fail_publish) remove_action('transition_post_status', $fail_publish, 999);
